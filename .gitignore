@@ -1,0 +1,40 @@
+# Rust build output
+/target/
+
+# Cargo lock file: kept (binary project, want reproducible builds)
+
+# 测试用照片（涉及个人隐私 + 体积 500MB）
+/photos/
+/compressed/
+/test_files/
+/test_output/
+/samples/
+/input/
+/output/
+
+# IDE / 编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.iml
+*.rs.bk
+
+# 系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+$RECYCLE.BIN/
+
+# 日志 / 临时
+*.log
+*.tmp
+*.bak
+
+# Rust 编译临时文件（target 已包含，但 cargo clean 前偶尔有遗留）
+*.pdb
+
+# 本地 patch（vendor 副本）
+# /patch/   ← 保留，文档里说明了用途
