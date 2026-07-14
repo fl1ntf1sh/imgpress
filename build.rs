@@ -1,3 +1,3 @@
 fn main() {
-    embed_resource::compile("assets/icon.rc", embed_resource::NONE);
+    let _ = embed_resource::compile("assets/icon.rc", embed_resource::NONE);
 }

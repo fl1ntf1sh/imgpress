@@ -392,29 +392,32 @@ fn scan_recursive(
 }
 
 impl eframe::App for AppState {
-    fn update(&mut self, ctx: &eframe::egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut eframe::egui::Ui, _frame: &mut eframe::Frame) {
         self.poll_scan();
         self.poll_events();
 
         if self.running || self.scanning {
-            ctx.request_repaint_after(std::time::Duration::from_millis(150));
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(150));
         }
 
         let prev_input = self.input_path.clone();
-        draw_ui(self, ctx);
+        draw_ui(ui, self);
         if self.input_path != prev_input {
             self.start_scan(self.input_path.clone());
         }
     }
+
+    fn clear_color(&self, visuals: &eframe::egui::Visuals) -> [f32; 4] {
+        visuals.window_fill.to_normalized_gamma_f32()
+    }
 }
 
-fn draw_ui(state: &mut AppState, ctx: &eframe::egui::Context) {
+fn draw_ui(ui: &mut eframe::egui::Ui, state: &mut AppState) {
     use eframe::egui::{Align, Color32, RichText, Vec2};
 
-    eframe::egui::CentralPanel::default().show(ctx, |ui| {
-        eframe::egui::ScrollArea::vertical()
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
+    eframe::egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     ui.add_space(8.0);
@@ -665,7 +668,7 @@ fn draw_ui(state: &mut AppState, ctx: &eframe::egui::Context) {
 
                 ui.add_space(12.0);
                 eframe::egui::Frame::group(ui.style())
-                    .inner_margin(egui::Margin::same(10.0))
+                    .inner_margin(egui::Margin::same(10))
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.label(
@@ -697,5 +700,4 @@ fn draw_ui(state: &mut AppState, ctx: &eframe::egui::Context) {
                     });
                 ui.add_space(8.0);
             });
-    });
 }

@@ -3,7 +3,7 @@ use eframe::egui::{self, Color32, RichText, Ui, Vec2};
 pub fn section(ui: &mut Ui, title: &str, icon: &str, add: impl FnOnce(&mut Ui)) {
     ui.add_space(8.0);
     egui::Frame::group(ui.style())
-        .inner_margin(egui::Margin::same(14.0))
+        .inner_margin(egui::Margin::same(14))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(
