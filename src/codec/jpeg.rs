@@ -35,14 +35,15 @@ fn flatten_alpha_to_rgb(img: &DynamicImage) -> image::RgbImage {
     let (w, h) = (rgba.width(), rgba.height());
     image::ImageBuffer::from_fn(w, h, |x, y| {
         let p = rgba.get_pixel(x, y);
-        let a = p[3] as f32 / 255.0;
-        if a >= 1.0 {
+        let a = p[3] as u32;
+        if a == 255 {
             image::Rgb([p[0], p[1], p[2]])
         } else {
+            let inv = 255 - a;
             image::Rgb([
-                (p[0] as f32 * a + 255.0 * (1.0 - a)) as u8,
-                (p[1] as f32 * a + 255.0 * (1.0 - a)) as u8,
-                (p[2] as f32 * a + 255.0 * (1.0 - a)) as u8,
+                ((p[0] as u32 * a + 255 * inv) / 255) as u8,
+                ((p[1] as u32 * a + 255 * inv) / 255) as u8,
+                ((p[2] as u32 * a + 255 * inv) / 255) as u8,
             ])
         }
     })

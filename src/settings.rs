@@ -14,6 +14,7 @@ pub struct AppSettings {
     pub scale_step: f32,
     pub preserve_structure: bool,
     pub skip_if_smaller: bool,
+    pub recursive: bool,
 }
 
 impl Default for AppSettings {
@@ -28,6 +29,7 @@ impl Default for AppSettings {
             scale_step: 0.85,
             preserve_structure: true,
             skip_if_smaller: true,
+            recursive: true,
         }
     }
 }

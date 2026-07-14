@@ -39,18 +39,13 @@ impl Compressor {
                     last_valid = Some(bytes);
                     lo = mid.saturating_add(1);
                 } else {
-                    if hi == 0 {
-                        break;
-                    }
                     hi = mid.saturating_sub(1);
                 }
             }
 
-            if let Some(valid) = last_valid {
-                if valid.len() as u64 <= target {
-                    best = Some(valid);
-                    break;
-                }
+            if last_valid.is_some() {
+                best = last_valid;
+                break;
             }
 
             if scale_round == max_scales {

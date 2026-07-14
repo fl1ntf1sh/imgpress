@@ -4,7 +4,7 @@ use clap::Parser;
 use imgpress::cli::{Cli, Command};
 use imgpress::config::{CompressOptions, Format, SizeLimit};
 use imgpress::pipeline::{compress_directory, CompressReport};
-use imgpress::progress::NullProgress;
+use imgpress::progress::CliProgress;
 use std::time::Instant;
 
 fn main() {
@@ -37,7 +37,7 @@ fn run_cli(args: imgpress::cli::CliArgs) {
     );
 
     let start = Instant::now();
-    let report = match compress_directory(&opts.input, &opts.output, &opts, &NullProgress) {
+    let report = match compress_directory(&opts.input, &opts.output, &opts, &CliProgress) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("fatal: {}", e);

@@ -44,42 +44,38 @@ pub fn render_pdf_pages(path: &std::path::Path) -> Result<Vec<DynamicImage>> {
 
         let w = pixmap.width();
         let h = pixmap.height();
-        let n = pixmap.n();
-        let stride = pixmap.stride();
+        let n = pixmap.n() as usize;
+        let stride = pixmap.stride() as usize;
         let samples = pixmap.samples();
+        let row_bytes = (w as usize) * n;
+        let total = row_bytes * (h as usize);
 
-        let img = if n >= 4 {
-            let mut rgba = image::RgbaImage::new(w, h);
-            let pixels = rgba.as_mut();
-            let stride = stride as usize;
-            for y in 0..h as usize {
-                let src = y * stride;
-                let dst = y * (w as usize) * 4;
-                for x in 0..w as usize {
-                    pixels[dst + x * 4] = samples[src + x * 4];
-                    pixels[dst + x * 4 + 1] = samples[src + x * 4 + 1];
-                    pixels[dst + x * 4 + 2] = samples[src + x * 4 + 2];
-                    pixels[dst + x * 4 + 3] = samples[src + x * 4 + 3];
-                }
+        let img = if stride == row_bytes {
+            let buf = samples[..total].to_vec();
+            if n >= 4 {
+                image::ImageBuffer::from_raw(w, h, buf).map(DynamicImage::ImageRgba8)
+            } else {
+                image::ImageBuffer::from_raw(w, h, buf).map(DynamicImage::ImageRgb8)
             }
-            DynamicImage::ImageRgba8(rgba)
         } else {
-            let mut rgb = image::RgbImage::new(w, h);
-            let pixels = rgb.as_mut();
-            let stride = stride as usize;
+            let mut buf = Vec::with_capacity(total);
             for y in 0..h as usize {
-                let src = y * stride;
-                let dst = y * (w as usize) * 3;
-                for x in 0..w as usize {
-                    pixels[dst + x * 3] = samples[src + x * 3];
-                    pixels[dst + x * 3 + 1] = samples[src + x * 3 + 1];
-                    pixels[dst + x * 3 + 2] = samples[src + x * 3 + 2];
-                }
+                let start = y * stride;
+                buf.extend_from_slice(&samples[start..start + row_bytes]);
             }
-            DynamicImage::ImageRgb8(rgb)
+            if n >= 4 {
+                image::ImageBuffer::from_raw(w, h, buf).map(DynamicImage::ImageRgba8)
+            } else {
+                image::ImageBuffer::from_raw(w, h, buf).map(DynamicImage::ImageRgb8)
+            }
         };
 
-        result.push(img);
+        match img {
+            Some(image) => result.push(image),
+            None => {
+                page_errors.push(format!("第 {} 页像素数据尺寸不匹配", i + 1));
+            }
+        }
     }
 
     if result.is_empty() {

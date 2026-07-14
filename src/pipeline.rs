@@ -14,11 +14,12 @@ pub fn collect_files(
     output: &Path,
     recursive: bool,
     preserve_structure: bool,
+    format: crate::config::Format,
 ) -> Result<Vec<FileTask>> {
     let mut tasks = Vec::new();
     if input.is_file() {
         if is_supported(input) {
-            let out = unique_output(output, input, preserve_structure);
+            let out = unique_output(output, input, preserve_structure, format);
             tasks.push(FileTask {
                 input: input.to_path_buf(),
                 output: out,
@@ -27,7 +28,7 @@ pub fn collect_files(
         return Ok(tasks);
     }
 
-    walk(input, input, output, recursive, preserve_structure, &mut tasks)?;
+    walk(input, input, output, recursive, preserve_structure, format, &mut tasks)?;
     Ok(tasks)
 }
 
@@ -37,18 +38,22 @@ fn walk(
     output_root: &Path,
     recursive: bool,
     preserve_structure: bool,
+    format: crate::config::Format,
     tasks: &mut Vec<FileTask>,
 ) -> Result<()> {
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
-        Err(_) => return Ok(()),
+        Err(e) => {
+            log::warn!("read_dir({}) failed: {}", dir.display(), e);
+            return Ok(());
+        }
     };
     for entry in entries.flatten() {
         let path = entry.path();
 
         if path.is_dir() {
             if recursive {
-                walk(input_root, &path, output_root, recursive, preserve_structure, tasks)?;
+                walk(input_root, &path, output_root, recursive, preserve_structure, format, tasks)?;
             }
             continue;
         }
@@ -59,7 +64,7 @@ fn walk(
 
         let rel = path.strip_prefix(input_root).unwrap_or(&path);
         let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("output");
-        let ext = output_extension(output_root);
+        let ext = output_extension(format);
 
         let (out_dir, target_name) = if preserve_structure {
             let parent_rel = rel.parent().unwrap_or(Path::new(""));
@@ -91,9 +96,9 @@ fn walk(
 fn flatten_prefix(rel: &Path) -> String {
     let parent = rel.parent().unwrap_or(Path::new(""));
     parent
-        .iter()
-        .filter_map(|c| c.to_str())
-        .filter(|s| !matches!(*s, "" | "\\" | "/" | "D:"))
+        .components()
+        .filter_map(|c| c.as_os_str().to_str())
+        .filter(|s| !s.is_empty() && !s.ends_with(':') && *s != "/" && *s != "\\")
         .collect::<Vec<_>>()
         .join("_")
 }
@@ -115,8 +120,13 @@ fn unique_in_dir(dir: &Path, name: &str) -> PathBuf {
     candidate
 }
 
-fn unique_output(output_root: &Path, input: &Path, preserve_structure: bool) -> PathBuf {
-    let ext = output_extension(output_root);
+fn unique_output(
+    output_root: &Path,
+    input: &Path,
+    preserve_structure: bool,
+    format: crate::config::Format,
+) -> PathBuf {
+    let ext = output_extension(format);
     let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("output");
 
     let (out_dir, name) = if preserve_structure {
@@ -140,8 +150,8 @@ fn unique_output(output_root: &Path, input: &Path, preserve_structure: bool) -> 
     unique_in_dir(&out_dir, &name)
 }
 
-fn output_extension(_output: &Path) -> &'static str {
-    "jpg"
+fn output_extension(format: crate::config::Format) -> &'static str {
+    format.extension()
 }
 
 pub fn is_supported(path: &Path) -> bool {
@@ -181,7 +191,7 @@ pub fn compress_directory(
     use crate::compressor::Compressor;
 
     std::fs::create_dir_all(output)?;
-    let tasks = collect_files(input, output, opts.recursive, opts.preserve_structure)?;
+    let tasks = collect_files(input, output, opts.recursive, opts.preserve_structure, opts.format)?;
     let total = tasks.len();
     progress.on_start(total);
 
@@ -217,19 +227,11 @@ pub fn compress_directory(
             match outcome {
                 TaskOutcome::Ok { in_size, out_files } => {
                     let mut rep = report.lock().unwrap();
-                    rep.success += out_files.len();
+                    rep.success += 1;
                     rep.bytes_in += in_size;
                     let total_out: u64 = out_files.iter().map(|(_, sz)| sz).sum();
                     rep.bytes_out += total_out;
-                    if out_files.is_empty() {
-                        progress.on_file_done(&task.input, true, None);
-                    } else if out_files.len() == 1 {
-                        progress.on_file_done(&task.input, true, None);
-                    } else {
-                        for (path, _) in &out_files {
-                            progress.on_file_done(path, true, None);
-                        }
-                    }
+                    progress.on_file_done(&task.input, true, None);
                 }
                 TaskOutcome::Failed { msg, in_size } => {
                     let mut rep = report.lock().unwrap();
@@ -375,69 +377,67 @@ fn process_pdf(
         };
     }
 
-    let mut out_files: Vec<(PathBuf, u64)> = Vec::with_capacity(pages.len());
-
-    for (idx, img) in pages.into_iter().enumerate() {
-        if progress.is_cancelled() {
-            return TaskOutcome::Cancelled;
-        }
-        let target_name = format!("{}_page{}.jpg", stem, idx + 1);
-        let out_path = unique_pdf_output(parent, &target_name);
-
-        let compressed = match compressor.compress_to_size(
-            &img,
-            opts.max_size.bytes,
-            opts.min_quality,
-            opts.max_quality,
-            opts.scale_step,
-            opts.max_scales,
-            progress,
-        ) {
-            Ok(b) => b,
-            Err(crate::Error::Cancelled) => return TaskOutcome::Cancelled,
-            Err(e) => {
-                return TaskOutcome::Failed {
-                    msg: format!("第 {} 页压缩失败: {}", idx + 1, e),
-                    in_size: Some(in_size),
-                };
+    let ext = output_extension(opts.format);
+    let page_results: Vec<Option<(PathBuf, u64)>> = pages
+        .par_iter()
+        .enumerate()
+        .map(|(idx, img)| -> Option<(PathBuf, u64)> {
+            if progress.is_cancelled() {
+                return None;
             }
-        };
+            let target_name = format!("{}_page{}.{}", stem, idx + 1, ext);
+            let out_path = unique_in_dir(parent, &target_name);
+            let compressed = compressor
+                .compress_to_size(
+                    img,
+                    opts.max_size.bytes,
+                    opts.min_quality,
+                    opts.max_quality,
+                    opts.scale_step,
+                    opts.max_scales,
+                    progress,
+                )
+                .ok()?;
+            if let Err(e) = std::fs::write(&out_path, &compressed) {
+                log::warn!("写入 {} 失败: {}", out_path.display(), e);
+                return None;
+            }
+            Some((out_path, compressed.len() as u64))
+        })
+        .collect();
 
-        if let Err(e) = std::fs::write(&out_path, &compressed) {
-            return TaskOutcome::Failed {
-                msg: format!("写入失败: {}", e),
-                in_size: Some(in_size),
-            };
+    let mut out_files: Vec<(PathBuf, u64)> = Vec::with_capacity(page_results.len());
+    let mut failures: usize = 0;
+    for r in page_results {
+        match r {
+            Some(pair) => out_files.push(pair),
+            None => {
+                if progress.is_cancelled() {
+                    return TaskOutcome::Cancelled;
+                }
+                failures += 1;
+            }
         }
+    }
 
-        out_files.push((out_path, compressed.len() as u64));
+    if failures > 0 && !out_files.is_empty() {
+        log::warn!(
+            "{}: {}/{} 页面失败",
+            task.input.display(),
+            failures,
+            failures + out_files.len()
+        );
+    }
+
+    if out_files.is_empty() {
+        return TaskOutcome::Failed {
+            msg: format!("PDF 所有 {} 个页面均失败", failures),
+            in_size: Some(in_size),
+        };
     }
 
     TaskOutcome::Ok {
         in_size,
         out_files,
     }
-}
-
-fn unique_pdf_output(dir: &std::path::Path, name: &str) -> PathBuf {
-    let candidate = dir.join(name);
-    if !candidate.exists() {
-        return candidate;
-    }
-    let stem = std::path::Path::new(name)
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("page");
-    let ext = std::path::Path::new(name)
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("jpg");
-    for i in 1..u32::MAX {
-        let new_name = format!("{}_{}.{}", stem, i, ext);
-        let p = dir.join(&new_name);
-        if !p.exists() {
-            return p;
-        }
-    }
-    candidate
 }

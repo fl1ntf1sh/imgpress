@@ -35,6 +35,7 @@ pub struct AppState {
     pub scale_step: f32,
     pub preserve_structure: bool,
     pub skip_if_smaller: bool,
+    pub recursive: bool,
 
     pub total: usize,
     pub processed: usize,
@@ -55,6 +56,7 @@ pub struct AppState {
     pub worker_handle: Option<std::thread::JoinHandle<()>>,
     pub scan_rx: Option<Receiver<ScanResult>>,
     pub scan_handle: Option<std::thread::JoinHandle<()>>,
+    pub scan_cancel: Option<Arc<AtomicBool>>,
     pub last_scanned_path: String,
 }
 
@@ -80,6 +82,7 @@ impl AppState {
             scale_step: settings.scale_step,
             preserve_structure: settings.preserve_structure,
             skip_if_smaller: settings.skip_if_smaller,
+            recursive: settings.recursive,
             settings,
             input_path,
             output_path,
@@ -101,6 +104,7 @@ impl AppState {
             worker_handle: None,
             scan_rx: None,
             scan_handle: None,
+            scan_cancel: None,
             last_scanned_path: String::new(),
         };
         if !me.input_path.is_empty() {
@@ -113,6 +117,9 @@ impl AppState {
         if path == self.last_scanned_path && !self.scanning {
             return;
         }
+        if let Some(c) = &self.scan_cancel {
+            c.store(true, Ordering::Relaxed);
+        }
         self.last_scanned_path = path.clone();
         self.scanning = true;
         self.scan_count = 0;
@@ -121,9 +128,11 @@ impl AppState {
         let (tx, rx): (Sender<ScanResult>, Receiver<ScanResult>) = crossbeam_channel::unbounded();
         self.scan_rx = Some(rx);
 
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.scan_cancel = Some(cancel.clone());
+
         let pb = PathBuf::from(path);
         self.scan_handle = Some(std::thread::spawn(move || {
-            let cancel = Arc::new(AtomicBool::new(false));
             let (count, total_bytes) = scan_directory(&pb, &cancel);
             let _ = tx.send(ScanResult::Done {
                 count,
@@ -137,13 +146,21 @@ impl AppState {
         if let Some(rx) = self.scan_rx.as_ref() {
             while let Ok(ev) = rx.try_recv() {
                 match ev {
-                    ScanResult::Done { count, total_bytes, .. } => {
+                    ScanResult::Done { count, total_bytes, cancelled } => {
                         self.scan_count = count;
                         self.scan_bytes = total_bytes;
                         self.scanning = false;
                         self.last_scanned_path = self.input_path.clone();
+                        if cancelled {
+                            log::debug!("scan cancelled");
+                        }
                     }
                 }
+            }
+            if !self.scanning {
+                self.scan_rx = None;
+                self.scan_handle = None;
+                self.scan_cancel = None;
             }
         }
     }
@@ -170,7 +187,7 @@ impl AppState {
             max_scales: 8,
             preserve_structure: self.preserve_structure,
             skip_if_smaller: self.skip_if_smaller,
-            recursive: true,
+            recursive: self.recursive,
         };
 
         let cancel = Arc::new(AtomicBool::new(false));
@@ -237,6 +254,7 @@ impl AppState {
         s.scale_step = self.scale_step;
         s.preserve_structure = self.preserve_structure;
         s.skip_if_smaller = self.skip_if_smaller;
+        s.recursive = self.recursive;
         let _ = s.save();
         self.settings = s;
     }
@@ -520,6 +538,10 @@ fn draw_ui(state: &mut AppState, ctx: &eframe::egui::Context) {
                     ui.checkbox(
                         &mut state.skip_if_smaller,
                         "已小于目标的文件直接复制（不再压缩）",
+                    );
+                    ui.checkbox(
+                        &mut state.recursive,
+                        "递归扫描子文件夹",
                     );
                 });
 
