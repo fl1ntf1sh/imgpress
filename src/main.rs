@@ -66,6 +66,7 @@ fn build_options(args: imgpress::cli::CliArgs) -> anyhow::Result<CompressOptions
         preserve_structure: args.preserve_structure,
         skip_if_smaller: args.skip_if_smaller,
         recursive: !args.no_recursive,
+        delete_source: args.delete_source,
     })
 }
 

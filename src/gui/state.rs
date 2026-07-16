@@ -36,6 +36,7 @@ pub struct AppState {
     pub preserve_structure: bool,
     pub skip_if_smaller: bool,
     pub recursive: bool,
+    pub delete_source: bool,
 
     pub total: usize,
     pub processed: usize,
@@ -83,6 +84,7 @@ impl AppState {
             preserve_structure: settings.preserve_structure,
             skip_if_smaller: settings.skip_if_smaller,
             recursive: settings.recursive,
+            delete_source: settings.delete_source,
             settings,
             input_path,
             output_path,
@@ -188,6 +190,7 @@ impl AppState {
             preserve_structure: self.preserve_structure,
             skip_if_smaller: self.skip_if_smaller,
             recursive: self.recursive,
+            delete_source: self.delete_source,
         };
 
         let cancel = Arc::new(AtomicBool::new(false));
@@ -255,6 +258,7 @@ impl AppState {
         s.preserve_structure = self.preserve_structure;
         s.skip_if_smaller = self.skip_if_smaller;
         s.recursive = self.recursive;
+        s.delete_source = self.delete_source;
         let _ = s.save();
         self.settings = s;
     }
@@ -439,7 +443,6 @@ fn draw_ui(ui: &mut eframe::egui::Ui, state: &mut AppState) {
 
                 widgets::section(ui, "路径", "📁", |ui| {
                     widgets::path_row(ui, "源文件夹", &mut state.input_path, true);
-                    ui.add_space(4.0);
                     if state.scanning {
                         widgets::info_line(ui, "🔍", "正在扫描...", None);
                     } else if state.scan_count > 0 {
@@ -456,9 +459,8 @@ fn draw_ui(ui: &mut eframe::egui::Ui, state: &mut AppState) {
                     } else if !state.input_path.trim().is_empty() {
                         widgets::info_line(ui, "⚠", "未找到支持的图片文件", Some(Color32::from_rgb(220, 170, 80)));
                     }
-                    ui.add_space(10.0);
-                    widgets::path_row(ui, "输出文件夹", &mut state.output_path, true);
                     ui.add_space(4.0);
+                    widgets::path_row(ui, "输出文件夹", &mut state.output_path, true);
                     widgets::info_line(
                         ui,
                         "💡",
@@ -473,8 +475,7 @@ fn draw_ui(ui: &mut eframe::egui::Ui, state: &mut AppState) {
 
                 widgets::section(ui, "压缩参数", "🖼", |ui| {
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("目标大小").size(13.0));
-                        ui.add_space(8.0);
+                        ui.label(RichText::new("目标大小").size(12.0));
                         ui.add(
                             eframe::egui::DragValue::new(&mut state.max_size_kb)
                                 .range(1..=50_000)
@@ -482,29 +483,25 @@ fn draw_ui(ui: &mut eframe::egui::Ui, state: &mut AppState) {
                                 .max_decimals(0),
                         );
                     });
-                    ui.add_space(4.0);
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("输出格式").size(13.0));
-                        ui.add_space(8.0);
+                        ui.label(RichText::new("输出格式").size(12.0));
                         ui.radio_value(&mut state.format, Format::Jpeg, "JPEG");
                         ui.radio_value(&mut state.format, Format::WebP, "WebP");
                     });
-                    ui.add_space(4.0);
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("质量范围").size(13.0));
-                        ui.add_space(8.0);
+                        ui.label(RichText::new("质量范围").size(12.0));
                         ui.add(
                             eframe::egui::DragValue::new(&mut state.min_quality)
                                 .range(1..=100),
                         );
                         ui.add_sized(
-                            [140.0, 18.0],
+                            [100.0, 16.0],
                             eframe::egui::Slider::new(&mut state.min_quality, 1..=state.max_quality)
                                 .show_value(false),
                         );
                         ui.label("—");
                         ui.add_sized(
-                            [140.0, 18.0],
+                            [100.0, 16.0],
                             eframe::egui::Slider::new(
                                 &mut state.max_quality,
                                 state.min_quality..=100,
@@ -516,19 +513,12 @@ fn draw_ui(ui: &mut eframe::egui::Ui, state: &mut AppState) {
                                 .range(state.min_quality..=100),
                         );
                     });
-                    ui.add_space(4.0);
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("缩放步长").size(13.0));
-                        ui.add_space(8.0);
+                        ui.label(RichText::new("缩放步长").size(12.0));
                         ui.add(
                             eframe::egui::DragValue::new(&mut state.scale_step)
                                 .range(0.1..=0.99)
                                 .max_decimals(2),
-                        );
-                        ui.label(
-                            RichText::new("(最低质量仍超目标时缩小尺寸的比例)")
-                                .color(Color32::from_gray(140))
-                                .size(11.0),
                         );
                     });
                 });
@@ -546,6 +536,10 @@ fn draw_ui(ui: &mut eframe::egui::Ui, state: &mut AppState) {
                         &mut state.recursive,
                         "递归扫描子文件夹",
                     );
+                    ui.checkbox(
+                        &mut state.delete_source,
+                        "全部成功后删除源文件（不可恢复）",
+                    );
                 });
 
                 widgets::section(ui, "进度", "📊", |ui| {
@@ -560,7 +554,7 @@ fn draw_ui(ui: &mut eframe::egui::Ui, state: &mut AppState) {
                             .show_percentage()
                             .animate(true),
                     );
-                    ui.add_space(8.0);
+                    ui.add_space(4.0);
 
                     let elapsed = state
                         .finished_elapsed
@@ -593,7 +587,7 @@ fn draw_ui(ui: &mut eframe::egui::Ui, state: &mut AppState) {
                         .collect();
                     widgets::stat_row(ui, &stats_ref);
 
-                    ui.add_space(8.0);
+                    ui.add_space(4.0);
                     ui.horizontal(|ui| {
                         ui.label(
                             RichText::new("输入")
@@ -628,7 +622,6 @@ fn draw_ui(ui: &mut eframe::egui::Ui, state: &mut AppState) {
                     });
 
                     if !state.current_file.is_empty() {
-                        ui.add_space(4.0);
                         ui.horizontal(|ui| {
                             ui.label(
                                 RichText::new("当前")
@@ -644,7 +637,7 @@ fn draw_ui(ui: &mut eframe::egui::Ui, state: &mut AppState) {
                     }
                 });
 
-                ui.add_space(12.0);
+                ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     let start_ok = !state.running
                         && !state.input_path.trim().is_empty()
@@ -652,23 +645,23 @@ fn draw_ui(ui: &mut eframe::egui::Ui, state: &mut AppState) {
                     if widgets::primary_button(ui, "▶  开始", start_ok).clicked() {
                         state.start();
                     }
-                    ui.add_space(8.0);
+                    ui.add_space(6.0);
                     if widgets::danger_button(ui, "■  取消", state.running).clicked() {
                         state.cancel();
                     }
-                    ui.add_space(8.0);
+                    ui.add_space(6.0);
                     let open_ok = !state.output_path.trim().is_empty();
                     if ui
-                        .add_enabled(open_ok, eframe::egui::Button::new("📂  打开输出").min_size(Vec2::new(120.0, 36.0)))
+                        .add_enabled(open_ok, eframe::egui::Button::new("📂  打开输出").min_size(Vec2::new(120.0, 28.0)))
                         .clicked()
                     {
                         state.open_output();
                     }
                 });
 
-                ui.add_space(12.0);
+                ui.add_space(8.0);
                 eframe::egui::Frame::group(ui.style())
-                    .inner_margin(egui::Margin::same(10))
+                    .inner_margin(egui::Margin::same(8))
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.label(
@@ -682,9 +675,9 @@ fn draw_ui(ui: &mut eframe::egui::Ui, state: &mut AppState) {
                                 }
                             });
                         });
-                        ui.add_space(4.0);
+                        ui.add_space(2.0);
                         eframe::egui::ScrollArea::vertical()
-                            .max_height(180.0)
+                            .max_height(80.0)
                             .stick_to_bottom(true)
                             .auto_shrink([false, false])
                             .show(ui, |ui| {

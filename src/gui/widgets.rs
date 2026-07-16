@@ -1,18 +1,18 @@
 use eframe::egui::{self, Color32, RichText, Ui, Vec2};
 
 pub fn section(ui: &mut Ui, title: &str, icon: &str, add: impl FnOnce(&mut Ui)) {
-    ui.add_space(8.0);
+    ui.add_space(4.0);
     egui::Frame::group(ui.style())
-        .inner_margin(egui::Margin::same(14))
+        .inner_margin(egui::Margin::same(10))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(
                     RichText::new(format!("{}  {}", icon, title))
                         .strong()
-                        .size(14.0),
+                        .size(13.0),
                 );
             });
-            ui.add_space(6.0);
+            ui.add_space(4.0);
             add(ui);
         });
 }
@@ -106,7 +106,7 @@ pub fn format_duration(secs: f64) -> String {
 
 pub fn primary_button(ui: &mut Ui, text: &str, enabled: bool) -> egui::Response {
     let btn = egui::Button::new(RichText::new(text).strong())
-        .min_size(Vec2::new(120.0, 36.0))
+        .min_size(Vec2::new(120.0, 28.0))
         .fill(if enabled {
             Color32::from_rgb(60, 130, 220)
         } else {
@@ -117,7 +117,7 @@ pub fn primary_button(ui: &mut Ui, text: &str, enabled: bool) -> egui::Response 
 
 pub fn danger_button(ui: &mut Ui, text: &str, enabled: bool) -> egui::Response {
     let btn = egui::Button::new(RichText::new(text).strong())
-        .min_size(Vec2::new(100.0, 36.0))
+        .min_size(Vec2::new(100.0, 28.0))
         .fill(if enabled {
             Color32::from_rgb(200, 80, 80)
         } else {

@@ -46,4 +46,7 @@ pub struct CliArgs {
 
     #[arg(long)]
     pub no_recursive: bool,
+
+    #[arg(long)]
+    pub delete_source: bool,
 }

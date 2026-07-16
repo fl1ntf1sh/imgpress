@@ -15,6 +15,7 @@ pub struct AppSettings {
     pub preserve_structure: bool,
     pub skip_if_smaller: bool,
     pub recursive: bool,
+    pub delete_source: bool,
 }
 
 impl Default for AppSettings {
@@ -30,6 +31,7 @@ impl Default for AppSettings {
             preserve_structure: true,
             skip_if_smaller: true,
             recursive: true,
+            delete_source: false,
         }
     }
 }

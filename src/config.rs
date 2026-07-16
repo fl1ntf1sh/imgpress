@@ -45,6 +45,7 @@ pub struct CompressOptions {
     pub preserve_structure: bool,
     pub skip_if_smaller: bool,
     pub recursive: bool,
+    pub delete_source: bool,
 }
 
 impl Default for CompressOptions {
@@ -61,6 +62,7 @@ impl Default for CompressOptions {
             preserve_structure: true,
             skip_if_smaller: true,
             recursive: true,
+            delete_source: false,
         }
     }
 }
