@@ -5,13 +5,11 @@ pub fn section(ui: &mut Ui, title: &str, icon: &str, add: impl FnOnce(&mut Ui)) 
     egui::Frame::group(ui.style())
         .inner_margin(egui::Margin::same(10))
         .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(
-                    RichText::new(format!("{}  {}", icon, title))
-                        .strong()
-                        .size(13.0),
-                );
-            });
+            ui.label(
+                RichText::new(format!("{}  {}", icon, title))
+                    .strong()
+                    .size(13.0),
+            );
             ui.add_space(4.0);
             add(ui);
         });

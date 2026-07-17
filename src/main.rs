@@ -5,8 +5,10 @@ use imgpress::cli::{Cli, Command};
 use imgpress::config::{CompressOptions, Format, SizeLimit};
 use imgpress::pipeline::{compress_directory, CompressReport};
 use imgpress::progress::CliProgress;
-use imgpress::pipeline::write_log_file;
+use imgpress::log::write_log_file;
 use std::time::Instant;
+
+type CliResult<T> = std::result::Result<T, String>;
 
 fn main() {
     if std::env::var("RUST_LOG").is_err() {
@@ -22,6 +24,7 @@ fn main() {
 }
 
 fn run_cli(args: imgpress::cli::CliArgs) {
+    let write_log = args.log_file;
     let opts = match build_options(args) {
         Ok(o) => o,
         Err(e) => {
@@ -49,8 +52,8 @@ fn run_cli(args: imgpress::cli::CliArgs) {
     let elapsed = start.elapsed();
     print_report(&report, elapsed);
 
-    if opts.write_log {
-        match imgpress::pipeline::log_file_path() {
+    if write_log {
+        match imgpress::log::log_file_path() {
             Some(path) => {
                 if let Err(e) = write_log_file(&report, &opts, &path) {
                     eprintln!("写入日志失败: {}", e);
@@ -63,11 +66,11 @@ fn run_cli(args: imgpress::cli::CliArgs) {
     }
 }
 
-fn build_options(args: imgpress::cli::CliArgs) -> anyhow::Result<CompressOptions> {
+fn build_options(args: imgpress::cli::CliArgs) -> CliResult<CompressOptions> {
     let min_quality = args.min_quality.min(100);
     let max_quality = args.max_quality.min(100);
     if min_quality > max_quality {
-        anyhow::bail!("min_quality ({}) must not exceed max_quality ({})", min_quality, max_quality);
+        return Err(format!("min_quality ({}) must not exceed max_quality ({})", min_quality, max_quality));
     }
     Ok(CompressOptions {
         input: args.input,
@@ -76,7 +79,7 @@ fn build_options(args: imgpress::cli::CliArgs) -> anyhow::Result<CompressOptions
         format: match args.format.to_lowercase().as_str() {
             "jpeg" | "jpg" => Format::Jpeg,
             "webp" => Format::WebP,
-            other => anyhow::bail!("unsupported format: {}", other),
+            other => return Err(format!("unsupported format: {}", other)),
         },
         min_quality,
         max_quality,
@@ -86,11 +89,10 @@ fn build_options(args: imgpress::cli::CliArgs) -> anyhow::Result<CompressOptions
         skip_if_smaller: args.skip_if_smaller,
         recursive: !args.no_recursive,
         delete_source: args.delete_source,
-        write_log: args.log_file,
     })
 }
 
-fn parse_size(s: &str) -> anyhow::Result<SizeLimit> {
+fn parse_size(s: &str) -> CliResult<SizeLimit> {
     let s = s.trim().to_lowercase();
     let (num, mult) = if let Some(n) = s.strip_suffix("kb") {
         (n.trim(), 1024u64)
@@ -101,7 +103,7 @@ fn parse_size(s: &str) -> anyhow::Result<SizeLimit> {
     } else {
         (s.as_str(), 1024u64)
     };
-    let v: f64 = num.parse()?;
+    let v: f64 = num.parse().map_err(|e| format!("invalid size '{}': {}", s, e))?;
     Ok(SizeLimit::from_bytes((v * mult as f64) as u64))
 }
 
@@ -128,7 +130,7 @@ fn print_report(report: &CompressReport, elapsed: std::time::Duration) {
             println!("  {} - {}", p.display(), msg);
         }
     }
-    use imgpress::pipeline::SourceAction;
+    use imgpress::source::SourceAction;
     match &report.source_action {
         SourceAction::NotRequested => {}
         SourceAction::Deleted => println!("\n源文件: 已删除"),

@@ -1,12 +1,13 @@
 pub mod state;
 pub mod widgets;
+pub mod draw;
 use crate::Result;
 
 pub fn run() -> Result<()> {
     let icon = load_icon();
 
     let mut viewport = eframe::egui::ViewportBuilder::default()
-        .with_inner_size([820.0, 760.0])
+        .with_inner_size([820.0, 700.0])
         .with_min_inner_size([700.0, 600.0])
         .with_title("imgpress")
         .with_app_id("imgpress");

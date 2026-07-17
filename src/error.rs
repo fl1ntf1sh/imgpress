@@ -27,9 +27,13 @@ impl From<image::ImageError> for Error {
     }
 }
 
-impl From<anyhow::Error> for Error {
-    fn from(e: anyhow::Error) -> Self {
-        Error::Other(e.to_string())
+pub fn format_panic(panic: &Box<dyn std::any::Any + Send>) -> String {
+    if let Some(s) = panic.downcast_ref::<&str>() {
+        format!("panic: {}", s)
+    } else if let Some(s) = panic.downcast_ref::<String>() {
+        format!("panic: {}", s)
+    } else {
+        "unknown panic".to_string()
     }
 }
 

@@ -1,4 +1,4 @@
-use crate::config::Format;
+use crate::config::{CompressOptions, Format, SizeLimit};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -16,6 +16,7 @@ pub struct AppSettings {
     pub recursive: bool,
     pub delete_source: bool,
     pub write_log: bool,
+    pub max_scales: u32,
 }
 
 impl Default for AppSettings {
@@ -33,6 +34,26 @@ impl Default for AppSettings {
             recursive: true,
             delete_source: false,
             write_log: false,
+            max_scales: 8,
+        }
+    }
+}
+
+impl From<AppSettings> for CompressOptions {
+    fn from(s: AppSettings) -> Self {
+        CompressOptions {
+            input: s.last_input.unwrap_or_default(),
+            output: s.last_output.unwrap_or_default(),
+            max_size: SizeLimit::from_kb(s.max_size_kb),
+            format: s.format,
+            min_quality: s.min_quality,
+            max_quality: s.max_quality,
+            scale_step: s.scale_step,
+            max_scales: s.max_scales,
+            preserve_structure: s.preserve_structure,
+            skip_if_smaller: s.skip_if_smaller,
+            recursive: s.recursive,
+            delete_source: s.delete_source,
         }
     }
 }
