@@ -500,95 +500,103 @@ fn draw_ui(ui: &mut eframe::egui::Ui, state: &mut AppState) {
                     );
                 });
 
-                widgets::section(ui, "压缩参数", "🖼", |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("目标大小").size(12.0));
-                        ui.add(
-                            eframe::egui::DragValue::new(&mut state.max_size_kb)
-                                .range(1..=50_000)
-                                .suffix(" KB")
-                                .max_decimals(0),
-                        );
+                ui.horizontal(|ui| {
+                    let half = ui.available_width() / 2.0;
+                    ui.vertical(|ui| {
+                        ui.set_width(half);
+                        widgets::section(ui, "压缩参数", "🖼", |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new("目标大小").size(12.0));
+                                ui.add(
+                                    eframe::egui::DragValue::new(&mut state.max_size_kb)
+                                        .range(1..=50_000)
+                                        .suffix(" KB")
+                                        .max_decimals(0),
+                                );
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new("输出格式").size(12.0));
+                                ui.radio_value(&mut state.format, Format::Jpeg, "JPEG");
+                                ui.radio_value(&mut state.format, Format::WebP, "WebP");
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new("质量范围").size(12.0));
+                                ui.add(
+                                    eframe::egui::DragValue::new(&mut state.min_quality)
+                                        .range(1..=100),
+                                );
+                                ui.add_sized(
+                                    [70.0, 16.0],
+                                    eframe::egui::Slider::new(&mut state.min_quality, 1..=state.max_quality)
+                                        .show_value(false),
+                                );
+                                ui.label("—");
+                                ui.add_sized(
+                                    [70.0, 16.0],
+                                    eframe::egui::Slider::new(
+                                        &mut state.max_quality,
+                                        state.min_quality..=100,
+                                    )
+                                    .show_value(false),
+                                );
+                                ui.add(
+                                    eframe::egui::DragValue::new(&mut state.max_quality)
+                                        .range(state.min_quality..=100),
+                                );
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new("缩放步长").size(12.0));
+                                ui.add(
+                                    eframe::egui::DragValue::new(&mut state.scale_step)
+                                        .range(0.1..=0.99)
+                                        .max_decimals(2),
+                                );
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new("最大缩放轮数").size(12.0));
+                                ui.add(
+                                    eframe::egui::DragValue::new(&mut state.max_scales)
+                                        .range(1..=50)
+                                        .max_decimals(0),
+                                );
+                            });
+                        });
                     });
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("输出格式").size(12.0));
-                        ui.radio_value(&mut state.format, Format::Jpeg, "JPEG");
-                        ui.radio_value(&mut state.format, Format::WebP, "WebP");
+                    ui.vertical(|ui| {
+                        ui.set_width(half);
+                        widgets::section(ui, "选项", "⚙", |ui| {
+                            ui.checkbox(
+                                &mut state.preserve_structure,
+                                "保留源目录的子文件夹结构",
+                            );
+                            ui.checkbox(
+                                &mut state.skip_if_smaller,
+                                "已小于目标的文件直接复制（不再压缩）",
+                            );
+                            ui.checkbox(
+                                &mut state.recursive,
+                                "递归扫描子文件夹",
+                            );
+                            ui.checkbox(
+                                &mut state.delete_source,
+                                "全部成功后删除源文件（不可恢复）",
+                            );
+                            ui.checkbox(
+                                &mut state.write_log,
+                                "生成日志文件",
+                            );
+                            if let Some(path) = crate::pipeline::log_file_path() {
+                                ui.label(
+                                    eframe::egui::RichText::new(format!(
+                                        "保存到: {}",
+                                        path.display()
+                                    ))
+                                    .color(eframe::egui::Color32::from_gray(140))
+                                    .size(11.0),
+                                );
+                            }
+                        });
                     });
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("质量范围").size(12.0));
-                        ui.add(
-                            eframe::egui::DragValue::new(&mut state.min_quality)
-                                .range(1..=100),
-                        );
-                        ui.add_sized(
-                            [100.0, 16.0],
-                            eframe::egui::Slider::new(&mut state.min_quality, 1..=state.max_quality)
-                                .show_value(false),
-                        );
-                        ui.label("—");
-                        ui.add_sized(
-                            [100.0, 16.0],
-                            eframe::egui::Slider::new(
-                                &mut state.max_quality,
-                                state.min_quality..=100,
-                            )
-                            .show_value(false),
-                        );
-                        ui.add(
-                            eframe::egui::DragValue::new(&mut state.max_quality)
-                                .range(state.min_quality..=100),
-                        );
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("缩放步长").size(12.0));
-                        ui.add(
-                            eframe::egui::DragValue::new(&mut state.scale_step)
-                                .range(0.1..=0.99)
-                                .max_decimals(2),
-                        );
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("最大缩放轮数").size(12.0));
-                        ui.add(
-                            eframe::egui::DragValue::new(&mut state.max_scales)
-                                .range(1..=50)
-                                .max_decimals(0),
-                        );
-                    });
-                });
-
-                widgets::section(ui, "选项", "⚙", |ui| {
-                    ui.checkbox(
-                        &mut state.preserve_structure,
-                        "保留源目录的子文件夹结构",
-                    );
-                    ui.checkbox(
-                        &mut state.skip_if_smaller,
-                        "已小于目标的文件直接复制（不再压缩）",
-                    );
-                    ui.checkbox(
-                        &mut state.recursive,
-                        "递归扫描子文件夹",
-                    );
-                    ui.checkbox(
-                        &mut state.delete_source,
-                        "全部成功后删除源文件（不可恢复）",
-                    );
-                    ui.checkbox(
-                        &mut state.write_log,
-                        "生成日志文件",
-                    );
-                    if let Some(path) = crate::pipeline::log_file_path() {
-                        ui.label(
-                            eframe::egui::RichText::new(format!(
-                                "保存到: {}",
-                                path.display()
-                            ))
-                            .color(eframe::egui::Color32::from_gray(140))
-                            .size(11.0),
-                        );
-                    }
                 });
 
                 widgets::section(ui, "进度", "📊", |ui| {
