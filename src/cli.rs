@@ -49,4 +49,7 @@ pub struct CliArgs {
 
     #[arg(long)]
     pub delete_source: bool,
+
+    #[arg(long)]
+    pub log_file: bool,
 }

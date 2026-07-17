@@ -1,5 +1,4 @@
 use crate::config::Format;
-use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -16,6 +15,7 @@ pub struct AppSettings {
     pub skip_if_smaller: bool,
     pub recursive: bool,
     pub delete_source: bool,
+    pub write_log: bool,
 }
 
 impl Default for AppSettings {
@@ -32,15 +32,15 @@ impl Default for AppSettings {
             skip_if_smaller: true,
             recursive: true,
             delete_source: false,
+            write_log: false,
         }
     }
 }
 
 impl AppSettings {
     pub fn config_path() -> Option<PathBuf> {
-        let dirs = ProjectDirs::from("com", "imgpress", "imgpress")?;
-        let dir = dirs.config_dir();
-        std::fs::create_dir_all(dir).ok()?;
+        let dir = crate::app_data_dir()?;
+        std::fs::create_dir_all(&dir).ok()?;
         Some(dir.join("settings.json"))
     }
 

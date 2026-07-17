@@ -1,5 +1,6 @@
 use crate::progress::ProgressReporter;
 use crate::{Error, Result};
+use std::borrow::Cow;
 
 pub struct Compressor {
     codec: Box<dyn crate::codec::Codec>,
@@ -20,7 +21,7 @@ impl Compressor {
         max_scales: u32,
         progress: &dyn ProgressReporter,
     ) -> Result<Vec<u8>> {
-        let mut current = img.clone();
+        let mut current: Cow<'_, image::DynamicImage> = Cow::Borrowed(img);
         let mut best: Option<Vec<u8>> = None;
 
         for scale_round in 0..=max_scales {
@@ -32,7 +33,7 @@ impl Compressor {
                     return Err(Error::Cancelled);
                 }
                 let mid = ((lo as u16 + hi as u16) / 2) as u8;
-                let bytes = self.codec.encode(&current, mid)?;
+                let bytes = self.codec.encode(current.as_ref(), mid)?;
                 let size = bytes.len() as u64;
 
                 if size <= target {
@@ -54,7 +55,7 @@ impl Compressor {
 
             let new_w = ((current.width() as f32) * scale_step).max(1.0) as u32;
             let new_h = ((current.height() as f32) * scale_step).max(1.0) as u32;
-            current = current.resize(new_w, new_h, image::imageops::FilterType::Lanczos3);
+            current = Cow::Owned(current.resize(new_w, new_h, image::imageops::FilterType::Lanczos3));
         }
 
         best.ok_or_else(|| {

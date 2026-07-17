@@ -4,11 +4,6 @@
 # Cargo lock file: kept (binary project, want reproducible builds)
 
 # 测试用照片（涉及个人隐私 + 体积 500MB）
-/photos/
-/compressed/
-/test_files/
-/test_output/
-/samples/
 /input/
 /output/
 

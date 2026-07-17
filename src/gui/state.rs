@@ -37,6 +37,8 @@ pub struct AppState {
     pub skip_if_smaller: bool,
     pub recursive: bool,
     pub delete_source: bool,
+    pub write_log: bool,
+    pub max_scales: u32,
 
     pub total: usize,
     pub processed: usize,
@@ -47,14 +49,14 @@ pub struct AppState {
     pub scan_count: usize,
     pub scan_bytes: u64,
     pub scanning: bool,
-    pub log_lines: Vec<String>,
+    pub failed_files: Vec<(PathBuf, String)>,
+    pub info_messages: Vec<String>,
     pub running: bool,
     pub started_at: Option<std::time::Instant>,
     pub finished_elapsed: Option<f64>,
     pub cancel_flag: Option<Arc<AtomicBool>>,
 
     pub rx: Option<Receiver<WorkerEvent>>,
-    pub worker_handle: Option<std::thread::JoinHandle<()>>,
     pub scan_rx: Option<Receiver<ScanResult>>,
     pub scan_handle: Option<std::thread::JoinHandle<()>>,
     pub scan_cancel: Option<Arc<AtomicBool>>,
@@ -85,6 +87,8 @@ impl AppState {
             skip_if_smaller: settings.skip_if_smaller,
             recursive: settings.recursive,
             delete_source: settings.delete_source,
+            write_log: settings.write_log,
+            max_scales: 8,
             settings,
             input_path,
             output_path,
@@ -97,13 +101,13 @@ impl AppState {
             scan_count: 0,
             scan_bytes: 0,
             scanning: false,
-            log_lines: Vec::new(),
+            failed_files: Vec::new(),
+            info_messages: Vec::new(),
             running: false,
             started_at: None,
             finished_elapsed: None,
             cancel_flag: None,
             rx: None,
-            worker_handle: None,
             scan_rx: None,
             scan_handle: None,
             scan_cancel: None,
@@ -134,6 +138,9 @@ impl AppState {
         self.scan_cancel = Some(cancel.clone());
 
         let pb = PathBuf::from(path);
+        if let Some(old) = self.scan_handle.take() {
+            std::thread::spawn(move || { let _ = old.join(); });
+        }
         self.scan_handle = Some(std::thread::spawn(move || {
             let (count, total_bytes) = scan_directory(&pb, &cancel);
             let _ = tx.send(ScanResult::Done {
@@ -174,24 +181,24 @@ impl AppState {
         let input = PathBuf::from(self.input_path.trim());
         let output = PathBuf::from(self.output_path.trim());
         if input.as_os_str().is_empty() || output.as_os_str().is_empty() {
-            self.log("错误: 必须设置源文件夹和输出文件夹");
             return;
         }
 
-        let opts = CompressOptions {
-            input: input.clone(),
-            output: output.clone(),
-            max_size: SizeLimit::from_kb(self.max_size_kb),
-            format: self.format,
-            min_quality: self.min_quality,
-            max_quality: self.max_quality,
-            scale_step: self.scale_step,
-            max_scales: 8,
-            preserve_structure: self.preserve_structure,
-            skip_if_smaller: self.skip_if_smaller,
-            recursive: self.recursive,
-            delete_source: self.delete_source,
-        };
+    let opts = CompressOptions {
+        input: input.clone(),
+        output: output.clone(),
+        max_size: SizeLimit::from_kb(self.max_size_kb),
+        format: self.format,
+        min_quality: self.min_quality,
+        max_quality: self.max_quality,
+        scale_step: self.scale_step,
+        max_scales: self.max_scales,
+        preserve_structure: self.preserve_structure,
+        skip_if_smaller: self.skip_if_smaller,
+        recursive: self.recursive,
+        delete_source: self.delete_source,
+        write_log: self.write_log,
+    };
 
         let cancel = Arc::new(AtomicBool::new(false));
         self.cancel_flag = Some(cancel.clone());
@@ -203,12 +210,8 @@ impl AppState {
         self.current_file.clear();
         self.started_at = Some(std::time::Instant::now());
         self.finished_elapsed = None;
-        self.log(&format!(
-            "开始: {} → {} (目标 {} KB)",
-            input.display(),
-            output.display(),
-            self.max_size_kb
-        ));
+        self.failed_files.clear();
+        self.info_messages.clear();
 
         let (tx, rx): (Sender<WorkerEvent>, Receiver<WorkerEvent>) = crossbeam_channel::unbounded();
         self.rx = Some(rx);
@@ -216,7 +219,10 @@ impl AppState {
         let cancel_clone = cancel.clone();
         let input_thread = input.clone();
         let output_thread = output.clone();
-        let handle = std::thread::spawn(move || {
+        let opts_thread = opts.clone();
+        let write_log = self.write_log;
+        let tx_for_panic = tx.clone();
+        let _handle = std::thread::spawn(move || {
             struct Reporter(Sender<WorkerEvent>, Arc<AtomicBool>);
             impl crate::progress::ProgressReporter for Reporter {
                 fn on_start(&self, total: usize) {
@@ -243,9 +249,45 @@ impl AppState {
                 }
             }
             let reporter = Reporter(tx, cancel_clone);
-            let _ = crate::pipeline::compress_directory(&input_thread, &output_thread, &opts, &reporter);
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                crate::pipeline::compress_directory(
+                    &input_thread,
+                    &output_thread,
+                    &opts_thread,
+                    &reporter,
+                )
+            }));
+            match result {
+                Ok(Ok(report)) => {
+                    if write_log {
+                        if let Some(path) = crate::pipeline::log_file_path() {
+                            if let Err(e) =
+                                crate::pipeline::write_log_file(&report, &opts_thread, &path)
+                            {
+                                log::warn!("写入日志失败: {}", e);
+                            }
+                        }
+                    }
+                }
+                Ok(Err(e)) => {
+                    log::error!("pipeline error: {}", e);
+                }
+                Err(panic) => {
+                    let msg = if let Some(s) = panic.downcast_ref::<&str>() {
+                        format!("worker panic: {}", s)
+                    } else if let Some(s) = panic.downcast_ref::<String>() {
+                        format!("worker panic: {}", s)
+                    } else {
+                        "worker panic: <unknown>".to_string()
+                    };
+                    log::error!("{}", msg);
+                    let _ = tx_for_panic.send(WorkerEvent::Finished {
+                        report: crate::pipeline::CompressReport::default(),
+                        cancelled: false,
+                    });
+                }
+            }
         });
-        self.worker_handle = Some(handle);
 
         let mut s = self.settings.clone();
         s.last_input = Some(input);
@@ -259,6 +301,7 @@ impl AppState {
         s.skip_if_smaller = self.skip_if_smaller;
         s.recursive = self.recursive;
         s.delete_source = self.delete_source;
+        s.write_log = self.write_log;
         let _ = s.save();
         self.settings = s;
     }
@@ -266,34 +309,28 @@ impl AppState {
     pub fn cancel(&mut self) {
         if let Some(f) = &self.cancel_flag {
             f.store(true, Ordering::Relaxed);
-            self.log("正在取消...");
         }
     }
 
     pub fn poll_events(&mut self) {
         let events: Vec<WorkerEvent> = match self.rx.as_ref() {
-            Some(rx) => rx.try_recv().into_iter().collect(),
+            Some(rx) => rx.try_iter().collect(),
             None => return,
         };
         for ev in events {
             match ev {
                 WorkerEvent::Started { total } => {
                     self.total = total;
-                    self.log(&format!("找到 {} 个文件", total));
                 }
                 WorkerEvent::FileStart { name } => {
                     self.current_file = name.display().to_string();
                 }
                 WorkerEvent::FileDone { name, ok, msg } => {
                     self.processed += 1;
-                    if ok {
-                        if self.processed % 10 == 0 || self.processed == self.total {
-                            self.log(&format!("✓ {}/{}  {}", self.processed, self.total, short_path(&name)));
-                        }
-                    } else {
+                    if !ok {
                         self.failed_count += 1;
                         let m = msg.unwrap_or_else(|| "未知错误".into());
-                        self.log(&format!("✗ {} - {}", short_path(&name), m));
+                        self.failed_files.push((name, m));
                     }
                 }
                 WorkerEvent::Finished { report, cancelled } => {
@@ -303,34 +340,28 @@ impl AppState {
                     self.current_file.clear();
                     let elapsed = self.started_at.map(|t| t.elapsed()).unwrap_or_default();
                     self.finished_elapsed = Some(elapsed.as_secs_f64());
-                    let status = if cancelled { "已取消" } else { "完成" };
-                    self.log(&format!(
-                        "{}: 总 {} · 成功 {} · 失败 {} · 用时 {:?}",
-                        status,
-                        report.total,
-                        report.success,
-                        report.failed.len(),
-                        elapsed
-                    ));
                     self.rx = None;
+
+                    use crate::pipeline::SourceAction;
+                    match &report.source_action {
+                        SourceAction::NotRequested => {}
+                        SourceAction::Deleted => {
+                            self.info_messages.push("源文件已删除".into());
+                        }
+                        SourceAction::Skipped { reason } => {
+                            self.info_messages
+                                .push(format!("源文件未删除: {}", reason));
+                        }
+                        SourceAction::Errored { error } => {
+                            self.info_messages
+                                .push(format!("源文件删除失败: {}", error));
+                        }
+                    }
+                    if cancelled {
+                        self.info_messages.push("已取消".into());
+                    }
                 }
             }
-        }
-    }
-
-    pub fn log(&mut self, line: &str) {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() % 86_400)
-            .unwrap_or(0);
-        let h = now / 3600;
-        let m = (now % 3600) / 60;
-        let s = now % 60;
-        self.log_lines
-            .push(format!("[{:02}:{:02}:{:02}] {}", h, m, s, line));
-        if self.log_lines.len() > 300 {
-            let drop = self.log_lines.len() - 300;
-            self.log_lines.drain(0..drop);
         }
     }
 
@@ -346,10 +377,12 @@ impl AppState {
 
 fn short_path(p: &Path) -> String {
     let s = p.display().to_string();
-    if s.len() > 60 {
-        format!("...{}", &s[s.len() - 57..])
-    } else {
-        s
+    if s.chars().count() <= 40 {
+        return s;
+    }
+    match p.file_name() {
+        Some(name) => format!("...{}", name.to_string_lossy()),
+        None => s,
     }
 }
 
@@ -380,16 +413,10 @@ fn scan_recursive(
         let p = entry.path();
         if p.is_dir() {
             scan_recursive(&p, count, bytes, cancel);
-        } else if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
-            let ext = ext.to_lowercase();
-            if matches!(
-                ext.as_str(),
-                "png" | "jpg" | "jpeg" | "webp" | "bmp" | "tiff" | "tif" | "gif" | "ico"
-            ) {
-                *count += 1;
-                if let Ok(meta) = std::fs::metadata(&p) {
-                    *bytes += meta.len();
-                }
+        } else if crate::pipeline::is_supported(&p) {
+            *count += 1;
+            if let Ok(meta) = std::fs::metadata(&p) {
+                *bytes += meta.len();
             }
         }
     }
@@ -417,7 +444,7 @@ impl eframe::App for AppState {
 }
 
 fn draw_ui(ui: &mut eframe::egui::Ui, state: &mut AppState) {
-    use eframe::egui::{Align, Color32, RichText, Vec2};
+    use eframe::egui::{Color32, RichText, Vec2};
 
     eframe::egui::ScrollArea::vertical()
         .auto_shrink([false, false])
@@ -521,6 +548,14 @@ fn draw_ui(ui: &mut eframe::egui::Ui, state: &mut AppState) {
                                 .max_decimals(2),
                         );
                     });
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("最大缩放轮数").size(12.0));
+                        ui.add(
+                            eframe::egui::DragValue::new(&mut state.max_scales)
+                                .range(1..=50)
+                                .max_decimals(0),
+                        );
+                    });
                 });
 
                 widgets::section(ui, "选项", "⚙", |ui| {
@@ -540,6 +575,20 @@ fn draw_ui(ui: &mut eframe::egui::Ui, state: &mut AppState) {
                         &mut state.delete_source,
                         "全部成功后删除源文件（不可恢复）",
                     );
+                    ui.checkbox(
+                        &mut state.write_log,
+                        "生成日志文件",
+                    );
+                    if let Some(path) = crate::pipeline::log_file_path() {
+                        ui.label(
+                            eframe::egui::RichText::new(format!(
+                                "保存到: {}",
+                                path.display()
+                            ))
+                            .color(eframe::egui::Color32::from_gray(140))
+                            .size(11.0),
+                        );
+                    }
                 });
 
                 widgets::section(ui, "进度", "📊", |ui| {
@@ -659,38 +708,43 @@ fn draw_ui(ui: &mut eframe::egui::Ui, state: &mut AppState) {
                     }
                 });
 
-                ui.add_space(8.0);
-                eframe::egui::Frame::group(ui.style())
-                    .inner_margin(egui::Margin::same(8))
-                    .show(ui, |ui| {
-                        ui.horizontal(|ui| {
+                if !state.failed_files.is_empty() || !state.info_messages.is_empty() {
+                    ui.add_space(8.0);
+                    eframe::egui::Frame::group(ui.style())
+                        .inner_margin(egui::Margin::same(8))
+                        .show(ui, |ui| {
+                            let count = state.failed_files.len() + state.info_messages.len();
                             ui.label(
-                                RichText::new(format!("📝  日志 ({} 条)", state.log_lines.len()))
+                                RichText::new(format!("⚠  失败/信息 ({} 条)", count))
                                     .strong()
                                     .size(13.0),
                             );
-                            ui.with_layout(eframe::egui::Layout::right_to_left(Align::Center), |ui| {
-                                if ui.small_button("清空").clicked() {
-                                    state.log_lines.clear();
-                                }
-                            });
+                            ui.add_space(2.0);
+                            eframe::egui::ScrollArea::vertical()
+                                .max_height(120.0)
+                                .auto_shrink([false, false])
+                                .show(ui, |ui| {
+                                    for (path, msg) in &state.failed_files {
+                                        ui.label(
+                                            RichText::new(format!(
+                                                "{} - {}",
+                                                short_path(path),
+                                                msg
+                                            ))
+                                            .color(Color32::from_rgb(220, 100, 100))
+                                            .size(11.5),
+                                        );
+                                    }
+                                    for msg in &state.info_messages {
+                                        ui.label(
+                                            RichText::new(msg)
+                                                .color(Color32::from_rgb(220, 170, 80))
+                                                .size(11.5),
+                                        );
+                                    }
+                                });
                         });
-                        ui.add_space(2.0);
-                        eframe::egui::ScrollArea::vertical()
-                            .max_height(80.0)
-                            .stick_to_bottom(true)
-                            .auto_shrink([false, false])
-                            .show(ui, |ui| {
-                                for line in &state.log_lines {
-                                    ui.label(
-                                        RichText::new(line)
-                                            .monospace()
-                                            .size(11.5)
-                                            .color(Color32::from_gray(200)),
-                                    );
-                                }
-                            });
-                    });
+                }
                 ui.add_space(8.0);
             });
 }

@@ -5,6 +5,7 @@ use imgpress::cli::{Cli, Command};
 use imgpress::config::{CompressOptions, Format, SizeLimit};
 use imgpress::pipeline::{compress_directory, CompressReport};
 use imgpress::progress::CliProgress;
+use imgpress::pipeline::write_log_file;
 use std::time::Instant;
 
 fn main() {
@@ -47,9 +48,27 @@ fn run_cli(args: imgpress::cli::CliArgs) {
 
     let elapsed = start.elapsed();
     print_report(&report, elapsed);
+
+    if opts.write_log {
+        match imgpress::pipeline::log_file_path() {
+            Some(path) => {
+                if let Err(e) = write_log_file(&report, &opts, &path) {
+                    eprintln!("写入日志失败: {}", e);
+                } else {
+                    eprintln!("日志已写入: {}", path.display());
+                }
+            }
+            None => eprintln!("无法解析配置目录路径，跳过日志写入"),
+        }
+    }
 }
 
 fn build_options(args: imgpress::cli::CliArgs) -> anyhow::Result<CompressOptions> {
+    let min_quality = args.min_quality.min(100);
+    let max_quality = args.max_quality.min(100);
+    if min_quality > max_quality {
+        anyhow::bail!("min_quality ({}) must not exceed max_quality ({})", min_quality, max_quality);
+    }
     Ok(CompressOptions {
         input: args.input,
         output: args.output,
@@ -59,14 +78,15 @@ fn build_options(args: imgpress::cli::CliArgs) -> anyhow::Result<CompressOptions
             "webp" => Format::WebP,
             other => anyhow::bail!("unsupported format: {}", other),
         },
-        min_quality: args.min_quality.min(100),
-        max_quality: args.max_quality.min(100),
+        min_quality,
+        max_quality,
         scale_step: args.scale_step.clamp(0.1, 0.99),
         max_scales: args.max_scales,
         preserve_structure: args.preserve_structure,
         skip_if_smaller: args.skip_if_smaller,
         recursive: !args.no_recursive,
         delete_source: args.delete_source,
+        write_log: args.log_file,
     })
 }
 
@@ -106,6 +126,17 @@ fn print_report(report: &CompressReport, elapsed: std::time::Duration) {
         println!("\nFailed files:");
         for (p, msg) in &report.failed {
             println!("  {} - {}", p.display(), msg);
+        }
+    }
+    use imgpress::pipeline::SourceAction;
+    match &report.source_action {
+        SourceAction::NotRequested => {}
+        SourceAction::Deleted => println!("\n源文件: 已删除"),
+        SourceAction::Skipped { reason } => {
+            println!("\n源文件: 未删除 ({})", reason);
+        }
+        SourceAction::Errored { error } => {
+            println!("\n源文件: 删除失败 ({})", error);
         }
     }
 }

@@ -1,3 +1,4 @@
+use crate::app_data_dir;
 use crate::Result;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
@@ -94,11 +95,10 @@ fn walk(
 }
 
 fn flatten_prefix(rel: &Path) -> String {
-    let parent = rel.parent().unwrap_or(Path::new(""));
-    parent
-        .components()
-        .filter_map(|c| c.as_os_str().to_str())
-        .filter(|s| !s.is_empty() && !s.ends_with(':') && *s != "/" && *s != "\\")
+    rel.parent()
+        .unwrap_or(Path::new(""))
+        .iter()
+        .filter_map(|c| c.to_str())
         .collect::<Vec<_>>()
         .join("_")
 }
@@ -110,13 +110,14 @@ fn unique_in_dir(dir: &Path, name: &str) -> PathBuf {
     }
     let stem = Path::new(name).file_stem().and_then(|s| s.to_str()).unwrap_or("file");
     let ext = Path::new(name).extension().and_then(|s| s.to_str()).unwrap_or("jpg");
-    for i in 1..u32::MAX {
+    for i in 1..u16::MAX {
         let new_name = format!("{}_{}.{}", stem, i, ext);
         let p = dir.join(&new_name);
         if !p.exists() {
             return p;
         }
     }
+    log::warn!("unique_in_dir exhausted: {}, fallback to original", dir.join(name).display());
     candidate
 }
 
@@ -154,17 +155,24 @@ fn output_extension(format: crate::config::Format) -> &'static str {
     format.extension()
 }
 
+const SUPPORTED_EXTS: &[&str] = &[
+    "png", "jpg", "jpeg", "webp", "bmp", "tiff", "tif", "gif", "ico",
+    "ppm", "pgm", "pbm", "pdf",
+];
+
 pub fn is_supported(path: &Path) -> bool {
-    let ext = path
-        .extension()
+    path.extension()
         .and_then(|e| e.to_str())
-        .map(|e| e.to_lowercase())
-        .unwrap_or_default();
-    matches!(
-        ext.as_str(),
-        "png" | "jpg" | "jpeg" | "webp" | "bmp" | "tiff" | "tif" | "gif" | "ico"
-            | "ppm" | "pgm" | "pbm" | "pdf"
-    )
+        .is_some_and(|ext| SUPPORTED_EXTS.iter().any(|s| s.eq_ignore_ascii_case(ext)))
+}
+
+#[derive(Debug, Clone, Default)]
+pub enum SourceAction {
+    #[default]
+    NotRequested,
+    Deleted,
+    Skipped { reason: String },
+    Errored { error: String },
 }
 
 #[derive(Debug, Clone, Default)]
@@ -174,12 +182,20 @@ pub struct CompressReport {
     pub failed: Vec<(PathBuf, String)>,
     pub bytes_in: u64,
     pub bytes_out: u64,
+    pub source_action: SourceAction,
 }
 
 enum TaskOutcome {
     Ok { in_size: u64, out_files: Vec<(PathBuf, u64)> },
     Failed { msg: String, in_size: Option<u64> },
     Cancelled,
+}
+
+struct Accumulator {
+    success: std::sync::atomic::AtomicUsize,
+    bytes_in: std::sync::atomic::AtomicU64,
+    bytes_out: std::sync::atomic::AtomicU64,
+    failed: Mutex<Vec<(PathBuf, String)>>,
 }
 
 pub fn compress_directory(
@@ -206,62 +222,204 @@ pub fn compress_directory(
         crate::config::Format::WebP => Box::new(crate::codec::webp::WebPCodec::new()),
     });
 
-    let report = Mutex::new(CompressReport {
-        total,
-        ..Default::default()
-    });
+    let acc = Accumulator {
+        success: std::sync::atomic::AtomicUsize::new(0),
+        bytes_in: std::sync::atomic::AtomicU64::new(0),
+        bytes_out: std::sync::atomic::AtomicU64::new(0),
+        failed: Mutex::new(Vec::new()),
+    };
 
-    let thread_pool = rayon::ThreadPoolBuilder::new()
-        .thread_name(|i| format!("imgpress-{}", i))
-        .build()
-        .unwrap();
+    tasks.par_iter().for_each(|task| {
+        if progress.is_cancelled() {
+            return;
+        }
+        progress.on_file_start(&task.input);
 
-    thread_pool.install(|| {
-        tasks.par_iter().for_each(|task| {
-            if progress.is_cancelled() {
-                return;
+        let outcome = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            process_task(task, opts, &compressor, progress)
+        })) {
+            Ok(outcome) => outcome,
+            Err(panic) => TaskOutcome::Failed {
+                msg: panic_message(&panic),
+                in_size: None,
+            },
+        };
+        match outcome {
+            TaskOutcome::Ok { in_size, out_files } => {
+                acc.success.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                acc.bytes_in.fetch_add(in_size, std::sync::atomic::Ordering::Relaxed);
+                let total_out: u64 = out_files.iter().map(|(_, sz)| sz).sum();
+                acc.bytes_out.fetch_add(total_out, std::sync::atomic::Ordering::Relaxed);
+                progress.on_file_done(&task.input, true, None);
             }
-            progress.on_file_start(&task.input);
-
-            let outcome = process_task(task, opts, &compressor, progress);
-            match outcome {
-                TaskOutcome::Ok { in_size, out_files } => {
-                    let mut rep = report.lock().unwrap();
-                    rep.success += 1;
-                    rep.bytes_in += in_size;
-                    let total_out: u64 = out_files.iter().map(|(_, sz)| sz).sum();
-                    rep.bytes_out += total_out;
-                    progress.on_file_done(&task.input, true, None);
+            TaskOutcome::Failed { msg, in_size } => {
+                if let Some(s) = in_size {
+                    acc.bytes_in.fetch_add(s, std::sync::atomic::Ordering::Relaxed);
                 }
-                TaskOutcome::Failed { msg, in_size } => {
-                    let mut rep = report.lock().unwrap();
-                    if let Some(s) = in_size {
-                        rep.bytes_in += s;
-                    }
-                    rep.failed.push((task.input.clone(), msg.clone()));
-                    progress.on_file_done(&task.input, false, Some(&msg));
+                acc.failed.lock().unwrap().push((task.input.clone(), msg.clone()));
+                progress.on_file_done(&task.input, false, Some(&msg));
+            }
+                TaskOutcome::Cancelled => {
+                    progress.on_file_done(&task.input, false, Some("已取消"));
                 }
-                TaskOutcome::Cancelled => {}
             }
         });
-    });
 
-    let final_report = report.into_inner().unwrap();
+    let mut final_report = CompressReport {
+        total,
+        success: acc.success.load(std::sync::atomic::Ordering::Relaxed),
+        failed: acc.failed.into_inner().unwrap(),
+        bytes_in: acc.bytes_in.load(std::sync::atomic::Ordering::Relaxed),
+        bytes_out: acc.bytes_out.load(std::sync::atomic::Ordering::Relaxed),
+        source_action: SourceAction::NotRequested,
+    };
 
-    if opts.delete_source
-        && final_report.success > 0
-        && final_report.failed.is_empty()
-        && final_report.success == total
-    {
-        if let Err(e) = delete_source(input, output) {
-            log::warn!("删除源文件失败 ({}): {}", input.display(), e);
+    if opts.delete_source {
+        if !final_report.failed.is_empty() {
+            final_report.source_action = SourceAction::Skipped {
+                reason: format!("有 {} 个文件失败", final_report.failed.len()),
+            };
+        } else if final_report.success != total {
+            final_report.source_action = SourceAction::Skipped {
+                reason: "部分任务被取消".into(),
+            };
+        } else if final_report.success == 0 {
+            final_report.source_action = SourceAction::Skipped {
+                reason: "没有成功处理的文件".into(),
+            };
         } else {
-            log::info!("已删除源: {}", input.display());
+            match delete_source(input, output) {
+                Ok(()) => {
+                    log::info!("已删除源: {}", input.display());
+                    final_report.source_action = SourceAction::Deleted;
+                }
+                Err(e) => {
+                    log::warn!("删除源文件失败 ({}): {}", input.display(), e);
+                    final_report.source_action = SourceAction::Errored {
+                        error: e.to_string(),
+                    };
+                }
+            }
         }
     }
 
     progress.on_finish(&final_report);
     Ok(final_report)
+}
+
+fn panic_message(panic: &Box<dyn std::any::Any + Send>) -> String {
+    if let Some(s) = panic.downcast_ref::<&str>() {
+        format!("处理过程中发生 panic: {}", s)
+    } else if let Some(s) = panic.downcast_ref::<String>() {
+        format!("处理过程中发生 panic: {}", s)
+    } else {
+        "处理过程中发生未知 panic".to_string()
+    }
+}
+
+pub fn log_file_path() -> Option<PathBuf> {
+    Some(app_data_dir()?.join("log.txt"))
+}
+
+pub fn write_log_file(
+    report: &CompressReport,
+    opts: &crate::config::CompressOptions,
+    path: &Path,
+) -> std::io::Result<()> {
+    use std::io::Write;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let (date, time) = format_unix_time(now);
+    writeln!(f)?;
+    writeln!(f, "=== Run {} {} ===", date, time)?;
+    writeln!(f, "Input:       {}", opts.input.display())?;
+    writeln!(f, "Output:      {}", opts.output.display())?;
+    writeln!(f, "Target:      {} KB", opts.max_size.bytes / 1024)?;
+    writeln!(f, "Format:      {:?}", opts.format)?;
+    writeln!(f, "Quality:     {}-{}", opts.min_quality, opts.max_quality)?;
+    writeln!(f, "Scale step:  {}", opts.scale_step)?;
+    writeln!(f, "Structure:   {}", opts.preserve_structure)?;
+    writeln!(f, "Skip small:  {}", opts.skip_if_smaller)?;
+    writeln!(f, "Recursive:   {}", opts.recursive)?;
+    writeln!(f, "Delete src:  {}", opts.delete_source)?;
+    writeln!(f)?;
+    writeln!(f, "Total:       {}", report.total)?;
+    writeln!(f, "Success:     {}", report.success)?;
+    writeln!(f, "Failed:      {}", report.failed.len())?;
+    writeln!(f, "Bytes in:    {}", report.bytes_in)?;
+    writeln!(f, "Bytes out:   {}", report.bytes_out)?;
+    writeln!(f, "Source:")?;
+    match &report.source_action {
+        SourceAction::NotRequested => {
+            writeln!(f, "  not requested")?;
+        }
+        SourceAction::Deleted => {
+            writeln!(f, "  deleted")?;
+        }
+        SourceAction::Skipped { reason } => {
+            writeln!(f, "  skipped: {}", reason)?;
+        }
+        SourceAction::Errored { error } => {
+            writeln!(f, "  error: {}", error)?;
+        }
+    }
+    if !report.failed.is_empty() {
+        writeln!(f)?;
+        writeln!(f, "--- Failed files ---")?;
+        for (path, msg) in &report.failed {
+            writeln!(f, "{} - {}", path.display(), msg)?;
+        }
+    }
+    f.flush()
+}
+
+fn is_leap_year(y: u64) -> bool {
+    (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0)
+}
+
+fn format_unix_time(secs: u64) -> (String, String) {
+    let days = secs / 86400;
+    let time = secs % 86400;
+    let h = time / 3600;
+    let m = (time % 3600) / 60;
+    let s = time % 60;
+    let mut year = 1970u64;
+    let mut remaining = days;
+    loop {
+        let diy = if is_leap_year(year) { 366 } else { 365 };
+        if remaining < diy {
+            break;
+        }
+        remaining -= diy;
+        year += 1;
+    }
+    let dims: [u64; 12] = if is_leap_year(year) {
+        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    };
+    let mut month = 1u64;
+    for &d in &dims {
+        if remaining < d {
+            break;
+        }
+        remaining -= d;
+        month += 1;
+    }
+    let day = remaining + 1;
+    (
+        format!("{:04}-{:02}-{:02}", year, month, day),
+        format!("{:02}:{:02}:{:02}", h, m, s),
+    )
 }
 
 fn delete_source(input: &Path, output: &Path) -> std::io::Result<()> {
@@ -310,8 +468,6 @@ fn process_task(
     compressor: &crate::compressor::Compressor,
     progress: &dyn crate::progress::ProgressReporter,
 ) -> TaskOutcome {
-    use crate::decoder;
-
     if progress.is_cancelled() {
         return TaskOutcome::Cancelled;
     }
@@ -338,7 +494,7 @@ fn process_task(
         return process_pdf(task, opts, compressor, progress, in_size);
     }
 
-    let img = match decoder::load_image(&task.input) {
+    let img = match image::open(&task.input) {
         Ok(i) => i,
         Err(e) => {
             return TaskOutcome::Failed {
@@ -431,10 +587,10 @@ fn process_pdf(
     }
 
     let ext = output_extension(opts.format);
-    let page_results: Vec<Option<(PathBuf, u64)>> = pages
+    let out_files: Vec<(PathBuf, u64)> = pages
         .par_iter()
         .enumerate()
-        .map(|(idx, img)| -> Option<(PathBuf, u64)> {
+        .filter_map(|(idx, img)| {
             if progress.is_cancelled() {
                 return None;
             }
@@ -459,26 +615,18 @@ fn process_pdf(
         })
         .collect();
 
-    let mut out_files: Vec<(PathBuf, u64)> = Vec::with_capacity(page_results.len());
-    let mut failures: usize = 0;
-    for r in page_results {
-        match r {
-            Some(pair) => out_files.push(pair),
-            None => {
-                if progress.is_cancelled() {
-                    return TaskOutcome::Cancelled;
-                }
-                failures += 1;
-            }
-        }
+    if progress.is_cancelled() {
+        return TaskOutcome::Cancelled;
     }
 
-    if failures > 0 && !out_files.is_empty() {
+    let total_pages = pages.len();
+    let failures = total_pages - out_files.len();
+    if failures > 0 {
         log::warn!(
             "{}: {}/{} 页面失败",
             task.input.display(),
             failures,
-            failures + out_files.len()
+            total_pages
         );
     }
 

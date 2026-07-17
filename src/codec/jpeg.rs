@@ -28,6 +28,9 @@ impl Codec for JpegCodec {
 }
 
 fn flatten_alpha_to_rgb(img: &DynamicImage) -> image::RgbImage {
+    if let Some(rgb) = img.as_rgb8() {
+        return rgb.clone();
+    }
     if !img.color().has_alpha() {
         return img.to_rgb8();
     }

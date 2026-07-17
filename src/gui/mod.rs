@@ -6,7 +6,7 @@ pub fn run() -> Result<()> {
     let icon = load_icon();
 
     let mut viewport = eframe::egui::ViewportBuilder::default()
-        .with_inner_size([820.0, 820.0])
+        .with_inner_size([820.0, 760.0])
         .with_min_inner_size([700.0, 600.0])
         .with_title("imgpress")
         .with_app_id("imgpress");
@@ -26,10 +26,36 @@ pub fn run() -> Result<()> {
         Box::new(|cc| {
             install_cjk_font(&cc.egui_ctx);
             cc.egui_ctx.set_theme(eframe::egui::Theme::Light);
+            install_panic_hook();
             Ok(Box::new(state::AppState::new(cc)))
         }),
     )
     .map_err(|e| crate::Error::Other(format!("eframe error: {}", e)))
+}
+
+fn install_panic_hook() {
+    use std::io::Write;
+    let log_path = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join("imgpress-crash.log")));
+    let Some(path) = log_path else { return };
+    let prev = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        {
+            let _ = writeln!(f, "----");
+            let _ = writeln!(f, "时间: {:?}", std::time::SystemTime::now());
+            let _ = writeln!(f, "{}", info);
+            if let Some(loc) = info.location() {
+                let _ = writeln!(f, "位置: {}:{}", loc.file(), loc.line());
+            }
+            let _ = f.flush();
+        }
+        prev(info);
+    }));
 }
 
 fn load_icon() -> Option<std::sync::Arc<eframe::egui::IconData>> {

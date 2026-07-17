@@ -3,15 +3,15 @@ use image::DynamicImage;
 
 pub fn render_pdf_pages(path: &std::path::Path) -> Result<Vec<DynamicImage>> {
     let doc = mupdf::Document::open(path.to_str().ok_or_else(|| {
-        Error::Pdf("路径包含非 UTF-8 字符".into())
+        Error::Pdf("path contains non-UTF-8 characters".into())
     })?)
-    .map_err(|e| Error::Pdf(format!("无法打开: {}", e)))?;
+    .map_err(|e| Error::Pdf(format!("failed to open: {}", e)))?;
 
     let page_count = doc
         .page_count()
         .map_err(|e| Error::Pdf(format!("无法获取页数: {}", e)))?;
     if page_count == 0 {
-        return Err(Error::Pdf("PDF 没有页面".into()));
+        return Err(Error::Pdf("PDF has no pages".into()));
     }
 
     let scale = 2.0;
@@ -24,7 +24,7 @@ pub fn render_pdf_pages(path: &std::path::Path) -> Result<Vec<DynamicImage>> {
         let page = match doc.load_page(i) {
             Ok(p) => p,
             Err(e) => {
-                page_errors.push(format!("第 {} 页加载失败: {}", i + 1, e));
+                page_errors.push(format!("page {} load failed: {}", i + 1, e));
                 continue;
             }
         };
@@ -37,7 +37,7 @@ pub fn render_pdf_pages(path: &std::path::Path) -> Result<Vec<DynamicImage>> {
         ) {
             Ok(p) => p,
             Err(e) => {
-                page_errors.push(format!("第 {} 页渲染失败: {}", i + 1, e));
+                page_errors.push(format!("page {} render failed: {}", i + 1, e));
                 continue;
             }
         };
@@ -73,7 +73,7 @@ pub fn render_pdf_pages(path: &std::path::Path) -> Result<Vec<DynamicImage>> {
         match img {
             Some(image) => result.push(image),
             None => {
-                page_errors.push(format!("第 {} 页像素数据尺寸不匹配", i + 1));
+                page_errors.push(format!("page {} pixel data size mismatch", i + 1));
             }
         }
     }
