@@ -60,6 +60,9 @@ pub struct CliArgs {
     #[arg(long)]
     pub delete_source: bool,
 
+    #[arg(long, requires = "delete_source")]
+    pub yes: bool,
+
     #[arg(long)]
     pub log_file: bool,
 }

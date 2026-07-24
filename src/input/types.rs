@@ -6,8 +6,16 @@ pub struct ExtractedImage {
     pub label: ImageLabel,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputKind {
+    Image,
+    Pdf,
+    Docx,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImageLabel {
     Single,
     Page { index: usize },
+    Embedded { index: usize },
 }

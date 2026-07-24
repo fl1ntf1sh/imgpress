@@ -3,7 +3,7 @@ use crate::discovery::FileTask;
 use crate::progress::ProgressReporter;
 use std::path::PathBuf;
 
-pub enum TaskOutcome {
+pub(super) enum TaskOutcome {
     Ok {
         in_size: u64,
         out_files: Vec<(PathBuf, u64)>,
@@ -15,7 +15,7 @@ pub enum TaskOutcome {
     Cancelled,
 }
 
-pub fn process_task(
+pub(super) fn process_task(
     task: &FileTask,
     opts: &CompressOptions,
     compressor: &crate::compressor::Compressor,
@@ -46,6 +46,7 @@ pub fn process_task(
                 in_size: Some(in_size),
             };
         }
+        progress.on_file_progress(&task.input, 1, 1);
         return TaskOutcome::Ok {
             in_size,
             out_files: vec![(task.output.clone(), in_size)],
@@ -69,9 +70,11 @@ pub fn process_task(
         };
     }
 
+    let total_images = images.len();
     let out_files: Vec<(PathBuf, u64)> = images
         .iter()
-        .filter_map(|img| {
+        .enumerate()
+        .filter_map(|(index, img)| {
             if progress.is_cancelled() {
                 return None;
             }
@@ -79,20 +82,27 @@ pub fn process_task(
             if let Some(parent) = out_path.parent() {
                 if let Err(e) = std::fs::create_dir_all(parent) {
                     log::warn!("创建输出目录 {} 失败: {}", parent.display(), e);
+                    progress.on_file_progress(&task.input, index + 1, total_images);
                     return None;
                 }
             }
-            let compressed = compressor
+            let Some(compressed) = compressor
                 .compress_to_size(&img.image, opts, progress)
                 .map_err(|e| {
                     log::warn!("压缩 {} 失败: {}", out_path.display(), e);
                     e
                 })
-                .ok()?;
+                .ok()
+            else {
+                progress.on_file_progress(&task.input, index + 1, total_images);
+                return None;
+            };
             if let Err(e) = std::fs::write(&out_path, &compressed) {
                 log::warn!("写入 {} 失败: {}", out_path.display(), e);
+                progress.on_file_progress(&task.input, index + 1, total_images);
                 return None;
             }
+            progress.on_file_progress(&task.input, index + 1, total_images);
             Some((out_path, compressed.len() as u64))
         })
         .collect();

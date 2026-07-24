@@ -22,20 +22,40 @@ fn format_utc_now() -> String {
     let mut y = 1970i64;
     let mut rem = days as i64;
     loop {
-        let diy = if (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0) { 366 } else { 365 };
-        if rem < diy { break; }
+        let diy = if (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0) {
+            366
+        } else {
+            365
+        };
+        if rem < diy {
+            break;
+        }
         rem -= diy;
         y += 1;
     }
     let leap = (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0);
-    let dim: &[i64] = if leap { &[31,29,31,30,31,30,31,31,30,31,30,31] } else { &[31,28,31,30,31,30,31,31,30,31,30,31] };
+    let dim: &[i64] = if leap {
+        &[31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        &[31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    };
     let mut mo = 1u64;
     for &d in dim {
-        if rem < d { break; }
+        if rem < d {
+            break;
+        }
         rem -= d;
         mo += 1;
     }
-    format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC", y, mo, rem + 1, h, m, s)
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC",
+        y,
+        mo,
+        rem + 1,
+        h,
+        m,
+        s
+    )
 }
 
 pub fn write_log_file(
@@ -50,45 +70,92 @@ pub fn write_log_file(
         .create(true)
         .append(true)
         .open(path)?;
+
+    let in_mb = report.bytes_in as f64 / 1_048_576.0;
+    let out_mb = report.bytes_out as f64 / 1_048_576.0;
+    let ratio = if report.bytes_in > 0 {
+        report.bytes_out as f64 / report.bytes_in as f64 * 100.0
+    } else {
+        0.0
+    };
+
     writeln!(f)?;
-    writeln!(f, "=== Run {} ===", format_utc_now())?;
-    writeln!(f, "Input:       {}", opts.input.display())?;
-    writeln!(f, "Output:      {}", opts.output.display())?;
-    writeln!(f, "Target:      {} KB", opts.max_size.bytes / 1024)?;
-    writeln!(f, "Format:      {:?}", opts.format)?;
-    writeln!(f, "Quality:     {}-{}", opts.min_quality, opts.max_quality)?;
-    writeln!(f, "Scale step:  {}", opts.scale_step)?;
-    writeln!(f, "Structure:   {}", opts.preserve_structure)?;
-    writeln!(f, "Skip small:  {}", opts.skip_if_smaller)?;
-    writeln!(f, "Recursive:   {}", opts.recursive)?;
-    writeln!(f, "Delete src:  {}", opts.delete_source)?;
+    writeln!(
+        f,
+        "============================================================"
+    )?;
+    writeln!(f, "运行时间: {}", format_utc_now())?;
+    writeln!(
+        f,
+        "------------------------------------------------------------"
+    )?;
+    writeln!(f, "[路径]")?;
+    writeln!(f, "源路径:   {}", opts.input.display())?;
+    writeln!(f, "输出路径: {}", opts.output.display())?;
     writeln!(f)?;
-    writeln!(f, "Total:       {}", report.total)?;
-    writeln!(f, "Success:     {}", report.success)?;
-    writeln!(f, "Failed:      {}", report.failed.len())?;
-    writeln!(f, "Bytes in:    {}", report.bytes_in)?;
-    writeln!(f, "Bytes out:   {}", report.bytes_out)?;
-    writeln!(f, "Source:")?;
+    writeln!(f, "[参数]")?;
+    writeln!(f, "目标大小:       {} KB", opts.max_size.bytes / 1024)?;
+    writeln!(f, "输出格式:       {:?}", opts.format)?;
+    writeln!(
+        f,
+        "质量范围:       {}-{}",
+        opts.min_quality, opts.max_quality
+    )?;
+    writeln!(f, "缩放步长:       {:.0}%", opts.scale_step * 100.0)?;
+    writeln!(f, "最大缩放轮数:   {}", opts.max_scales)?;
+    writeln!(f, "保留目录结构:   {}", yes_no(opts.preserve_structure))?;
+    writeln!(f, "跳过小文件:     {}", yes_no(opts.skip_if_smaller))?;
+    writeln!(f, "递归扫描:       {}", yes_no(opts.recursive))?;
+    writeln!(f, "成功后删除源:   {}", yes_no(opts.delete_source))?;
+    writeln!(f)?;
+    writeln!(f, "[结果]")?;
+    writeln!(f, "总任务数:       {}", report.total)?;
+    writeln!(f, "成功数:         {}", report.success)?;
+    writeln!(f, "失败数:         {}", report.failed.len())?;
+    writeln!(
+        f,
+        "输入体积:       {} bytes ({:.2} MB)",
+        report.bytes_in, in_mb
+    )?;
+    writeln!(
+        f,
+        "输出体积:       {} bytes ({:.2} MB)",
+        report.bytes_out, out_mb
+    )?;
+    writeln!(f, "输出/输入比例:  {:.1}%", ratio)?;
+    writeln!(f)?;
+    writeln!(f, "[源文件处理]")?;
     match &report.source_action {
         SourceAction::NotRequested => {
-            writeln!(f, "  not requested")?;
+            writeln!(f, "状态: 未请求删除")?;
         }
         SourceAction::Deleted => {
-            writeln!(f, "  deleted")?;
+            writeln!(f, "状态: 已删除源文件")?;
         }
         SourceAction::Skipped { reason } => {
-            writeln!(f, "  skipped: {}", reason)?;
+            writeln!(f, "状态: 已跳过")?;
+            writeln!(f, "原因: {}", reason)?;
         }
         SourceAction::Errored { error } => {
-            writeln!(f, "  error: {}", error)?;
+            writeln!(f, "状态: 删除失败")?;
+            writeln!(f, "错误: {}", error)?;
         }
     }
     if !report.failed.is_empty() {
         writeln!(f)?;
-        writeln!(f, "--- Failed files ---")?;
-        for (path, msg) in &report.failed {
-            writeln!(f, "{} - {}", path.display(), msg)?;
+        writeln!(f, "[失败文件]")?;
+        for (index, (path, msg)) in report.failed.iter().enumerate() {
+            writeln!(f, "{}. {}", index + 1, path.display())?;
+            writeln!(f, "   原因: {}", msg)?;
         }
     }
     f.flush()
+}
+
+fn yes_no(value: bool) -> &'static str {
+    if value {
+        "是"
+    } else {
+        "否"
+    }
 }

@@ -3,7 +3,7 @@ use std::path::Path;
 
 use super::{ExtractedImage, ImageLabel};
 
-pub fn extract(path: &Path) -> Result<Vec<ExtractedImage>> {
+pub(super) fn extract(path: &Path) -> Result<Vec<ExtractedImage>> {
     let pages =
         crate::pdf::render_pdf_pages(path).map_err(|e| Error::Pdf(format!("PDF 解析: {}", e)))?;
     if pages.is_empty() {

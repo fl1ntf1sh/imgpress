@@ -2,7 +2,7 @@
 
 use clap::Parser;
 use imgpress::cli::{Cli, Command};
-use imgpress::config::{CompressOptions, Format, SizeLimit};
+use imgpress::config::{validate_options, CompressOptions, Format, SizeLimit};
 use imgpress::log::write_log_file;
 use imgpress::pipeline::{compress_directory, CompressReport};
 use imgpress::progress::CliProgress;
@@ -28,7 +28,7 @@ fn run_cli(args: imgpress::cli::CliArgs) {
     let opts = match build_options(args) {
         Ok(o) => o,
         Err(e) => {
-            eprintln!("config error: {}", e);
+            eprintln!("配置错误: {}", e);
             std::process::exit(2);
         }
     };
@@ -44,7 +44,7 @@ fn run_cli(args: imgpress::cli::CliArgs) {
     let report = match compress_directory(&opts.input, &opts.output, &opts, &CliProgress) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("fatal: {}", e);
+            eprintln!("致命错误: {}", e);
             std::process::exit(1);
         }
     };
@@ -67,15 +67,10 @@ fn run_cli(args: imgpress::cli::CliArgs) {
 }
 
 fn build_options(args: imgpress::cli::CliArgs) -> CliResult<CompressOptions> {
-    let min_quality = args.min_quality.min(100);
-    let max_quality = args.max_quality.min(100);
-    if min_quality > max_quality {
-        return Err(format!(
-            "min_quality ({}) must not exceed max_quality ({})",
-            min_quality, max_quality
-        ));
+    if args.delete_source && !args.yes {
+        return Err("删除源文件需要同时传入 --yes 确认".into());
     }
-    Ok(CompressOptions {
+    let opts = CompressOptions {
         input: args.input,
         output: args.output,
         max_size: parse_size(&args.max_size)?,
@@ -84,15 +79,17 @@ fn build_options(args: imgpress::cli::CliArgs) -> CliResult<CompressOptions> {
             "webp" => Format::WebP,
             other => return Err(format!("unsupported format: {}", other)),
         },
-        min_quality,
-        max_quality,
-        scale_step: args.scale_step.clamp(0.1, 0.99),
+        min_quality: args.min_quality,
+        max_quality: args.max_quality,
+        scale_step: args.scale_step,
         max_scales: args.max_scales,
         preserve_structure: args.preserve_structure && !args.no_preserve_structure,
         skip_if_smaller: args.skip_if_smaller && !args.no_skip_if_smaller,
         recursive: !args.no_recursive,
         delete_source: args.delete_source,
-    })
+    };
+    validate_options(&opts)?;
+    Ok(opts)
 }
 
 fn parse_size(s: &str) -> CliResult<SizeLimit> {
@@ -115,12 +112,12 @@ fn parse_size(s: &str) -> CliResult<SizeLimit> {
 fn print_report(report: &CompressReport, elapsed: std::time::Duration) {
     println!();
     println!("========================================");
-    println!("Done in {:.2?}", elapsed);
-    println!("  Total:    {}", report.total);
-    println!("  Success:  {}", report.success);
-    println!("  Failed:   {}", report.failed.len());
+    println!("完成，用时 {:.2?}", elapsed);
+    println!("  总数:   {}", report.total);
+    println!("  成功:   {}", report.success);
+    println!("  失败:   {}", report.failed.len());
     println!(
-        "  Bytes:    {:.2} MB -> {:.2} MB ({:.1}%)",
+        "  体积:   {:.2} MB -> {:.2} MB ({:.1}%)",
         report.bytes_in as f64 / 1_048_576.0,
         report.bytes_out as f64 / 1_048_576.0,
         if report.bytes_in > 0 {
@@ -130,7 +127,7 @@ fn print_report(report: &CompressReport, elapsed: std::time::Duration) {
         }
     );
     if !report.failed.is_empty() {
-        println!("\nFailed files:");
+        println!("\n失败文件:");
         for (p, msg) in &report.failed {
             println!("  {} - {}", p.display(), msg);
         }

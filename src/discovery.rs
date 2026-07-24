@@ -20,6 +20,7 @@ struct CollectContext<'a> {
 
 const SUPPORTED_EXTS: &[&str] = &[
     "png", "jpg", "jpeg", "webp", "bmp", "tiff", "tif", "gif", "ico", "ppm", "pgm", "pbm", "pdf",
+    "docx",
 ];
 
 pub fn is_supported(path: &Path) -> bool {
@@ -128,7 +129,7 @@ fn build_output_path(
     }
 }
 
-pub fn output_extension(format: Format) -> &'static str {
+pub(crate) fn output_extension(format: Format) -> &'static str {
     format.extension()
 }
 
@@ -141,7 +142,7 @@ fn flatten_prefix(rel: &Path) -> String {
         .join("_")
 }
 
-pub fn unique_in_dir(dir: &Path, name: &str) -> PathBuf {
+pub(crate) fn unique_in_dir(dir: &Path, name: &str) -> PathBuf {
     let mut reserved = HashSet::new();
     unique_in_dir_reserved(dir, name, &mut reserved)
 }

@@ -21,8 +21,10 @@ export component MainWindow inherits Window {
     in-out property <bool> write-log;
     in-out property <bool> running;
     in-out property <float> progress;
-    in-out property <string> current-file;
     in-out property <string> summary;
+    in-out property <string> run-log;
+    in-out property <bool> delete-prompt-visible;
+    in-out property <string> delete-countdown-text;
 
     callback browse-input();
     callback browse-output();
@@ -30,6 +32,8 @@ export component MainWindow inherits Window {
     callback cancel();
     callback open-output();
     callback open-log-dir();
+    callback confirm-delete-source();
+    callback cancel-delete-source();
 
     background: #eef2f6;
 
@@ -241,9 +245,20 @@ export component MainWindow inherits Window {
                             }
                         }
 
-                        ProgressIndicator {
-                            progress: root.progress;
-                            height: 14px;
+                        VerticalLayout {
+                            spacing: 6px;
+
+                            Text {
+                                text: "任务进度";
+                                color: #64748b;
+                                font-size: 11px;
+                                font-weight: 700;
+                            }
+
+                            ProgressIndicator {
+                                progress: root.progress;
+                                height: 12px;
+                            }
                         }
 
                         Rectangle {
@@ -253,32 +268,23 @@ export component MainWindow inherits Window {
 
                             VerticalLayout {
                                 padding: 14px;
-                                spacing: 8px;
+                                spacing: 10px;
 
                                 Text {
-                                    text: "当前文件";
+                                    text: "处理日志";
                                     color: #64748b;
                                     font-size: 11px;
                                     font-weight: 700;
                                 }
 
                                 Text {
-                                    text: root.current-file == "" ? "暂无正在处理的文件" : root.current-file;
+                                    text: root.run-log == "" ? "等待开始任务。" : root.run-log;
                                     color: #334155;
                                     font-size: 12px;
-                                    overflow: elide;
-                                }
-
-                                Text {
-                                    text: root.running ? "任务正在后台执行，可以随时取消。" : "等待开始任务。";
-                                    color: #94a3b8;
-                                    font-size: 11px;
-                                    overflow: elide;
-                                }
-
-                                Rectangle {
                                     vertical-stretch: 1;
                                 }
+
+                                Rectangle { height: 1px; }
                             }
                         }
 
@@ -311,6 +317,69 @@ export component MainWindow inherits Window {
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+
+    Rectangle {
+        visible: root.delete-prompt-visible;
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+        background: #111827;
+        opacity: 0.35;
+    }
+
+    Rectangle {
+        visible: root.delete-prompt-visible;
+        width: 430px;
+        height: 190px;
+        x: (root.width - self.width) / 2;
+        y: (root.height - self.height) / 2;
+        background: white;
+        border-color: #d8dee8;
+        border-width: 1px;
+        border-radius: 12px;
+
+        VerticalLayout {
+            padding: 22px;
+            spacing: 14px;
+
+            Text {
+                text: "确认删除源文件？";
+                color: #111827;
+                font-size: 18px;
+                font-weight: 700;
+            }
+
+            Text {
+                text: "压缩已经完成。继续后将删除源文件；如果不操作，倒计时结束后默认确认删除。";
+                color: #475569;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+
+            Text {
+                text: root.delete-countdown-text;
+                color: #b45309;
+                font-size: 13px;
+                font-weight: 700;
+            }
+
+            HorizontalLayout {
+                spacing: 10px;
+                Rectangle { horizontal-stretch: 1; }
+
+                Button {
+                    text: "取消删除";
+                    clicked => { root.cancel-delete-source(); }
+                }
+
+                Button {
+                    text: "确认删除";
+                    clicked => { root.confirm-delete-source(); }
                 }
             }
         }

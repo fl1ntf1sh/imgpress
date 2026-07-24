@@ -105,7 +105,7 @@ pub fn compress_directory(
         source_action: SourceAction::NotRequested,
     };
 
-    update_source_action(input, output, opts, total, &mut final_report);
+    update_source_action(input, output, opts, progress, total, &mut final_report);
 
     progress.on_finish(&final_report);
     Ok(final_report)
@@ -115,6 +115,7 @@ fn update_source_action(
     input: &Path,
     output: &Path,
     opts: &CompressOptions,
+    progress: &dyn ProgressReporter,
     total: usize,
     report: &mut CompressReport,
 ) {
@@ -133,6 +134,10 @@ fn update_source_action(
     } else if report.success == 0 {
         report.source_action = SourceAction::Skipped {
             reason: "没有成功处理的文件".into(),
+        };
+    } else if !progress.confirm_delete_source(input) {
+        report.source_action = SourceAction::Skipped {
+            reason: "用户取消删除源文件".into(),
         };
     } else {
         match crate::source::delete_source(input, output) {
