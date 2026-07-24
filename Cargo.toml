@@ -14,8 +14,6 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
-eframe = { version = "0.35.0", default-features = false, features = ["default_fonts", "glow"] }
-egui = "0.35.0"
 rfd = "0.17.2"
 open = "5.4.0"
 
@@ -32,12 +30,14 @@ serde_json = "1.0"
 directories = "6.0.0"
 log = "0.4"
 env_logger = "0.11"
+slint = "1.17.1"
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 wayland-sys = "0.31"
 
 [build-dependencies]
 embed-resource = "3.0.11"
+slint-build = "1.17.1"
 
 [patch.crates-io]
 mupdf = { path = "patch/mupdf" }

@@ -10,6 +10,12 @@ impl JpegCodec {
     }
 }
 
+impl Default for JpegCodec {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Codec for JpegCodec {
     fn encode(&self, img: &DynamicImage, quality: u8) -> Result<Vec<u8>> {
         let rgb = flatten_alpha_to_rgb(img);

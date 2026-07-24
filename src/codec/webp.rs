@@ -10,6 +10,12 @@ impl WebPCodec {
     }
 }
 
+impl Default for WebPCodec {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Codec for WebPCodec {
     fn encode(&self, img: &DynamicImage, quality: u8) -> Result<Vec<u8>> {
         let rgba = img.to_rgba8();

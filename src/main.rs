@@ -3,9 +3,9 @@
 use clap::Parser;
 use imgpress::cli::{Cli, Command};
 use imgpress::config::{CompressOptions, Format, SizeLimit};
+use imgpress::log::write_log_file;
 use imgpress::pipeline::{compress_directory, CompressReport};
 use imgpress::progress::CliProgress;
-use imgpress::log::write_log_file;
 use std::time::Instant;
 
 type CliResult<T> = std::result::Result<T, String>;
@@ -70,7 +70,10 @@ fn build_options(args: imgpress::cli::CliArgs) -> CliResult<CompressOptions> {
     let min_quality = args.min_quality.min(100);
     let max_quality = args.max_quality.min(100);
     if min_quality > max_quality {
-        return Err(format!("min_quality ({}) must not exceed max_quality ({})", min_quality, max_quality));
+        return Err(format!(
+            "min_quality ({}) must not exceed max_quality ({})",
+            min_quality, max_quality
+        ));
     }
     Ok(CompressOptions {
         input: args.input,
@@ -85,8 +88,8 @@ fn build_options(args: imgpress::cli::CliArgs) -> CliResult<CompressOptions> {
         max_quality,
         scale_step: args.scale_step.clamp(0.1, 0.99),
         max_scales: args.max_scales,
-        preserve_structure: args.preserve_structure,
-        skip_if_smaller: args.skip_if_smaller,
+        preserve_structure: args.preserve_structure && !args.no_preserve_structure,
+        skip_if_smaller: args.skip_if_smaller && !args.no_skip_if_smaller,
         recursive: !args.no_recursive,
         delete_source: args.delete_source,
     })
@@ -103,7 +106,9 @@ fn parse_size(s: &str) -> CliResult<SizeLimit> {
     } else {
         (s.as_str(), 1024u64)
     };
-    let v: f64 = num.parse().map_err(|e| format!("invalid size '{}': {}", s, e))?;
+    let v: f64 = num
+        .parse()
+        .map_err(|e| format!("invalid size '{}': {}", s, e))?;
     Ok(SizeLimit::from_bytes((v * mult as f64) as u64))
 }
 
