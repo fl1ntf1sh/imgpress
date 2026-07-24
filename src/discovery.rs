@@ -20,7 +20,6 @@ struct CollectContext<'a> {
 
 const SUPPORTED_EXTS: &[&str] = &[
     "png", "jpg", "jpeg", "webp", "bmp", "tiff", "tif", "gif", "ico", "ppm", "pgm", "pbm", "pdf",
-    "docx",
 ];
 
 pub fn is_supported(path: &Path) -> bool {

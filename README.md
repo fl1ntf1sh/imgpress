@@ -1,6 +1,6 @@
 # imgpress
 
-imgpress 是一个桌面批量压缩工具，支持普通图片、扫描件 PDF，以及 DOCX 文档中的内嵌图片提取。默认启动 Slint GUI，也提供 CLI 模式。
+imgpress 是一个桌面批量压缩工具，支持普通图片和扫描件 PDF。默认启动 Slint GUI，也提供 CLI 模式。
 
 ## 功能
 
@@ -9,7 +9,6 @@ imgpress 是一个桌面批量压缩工具，支持普通图片、扫描件 PDF�
 - 支持递归扫描输入目录
 - 支持保留源目录结构或扁平化输出
 - 支持 PDF 按页渲染后压缩，输出为 `name_page1.jpg` 这类文件
-- 支持 DOCX 提取 `word/media/*` 内嵌图片后压缩，输出为 `name_image1.jpg` 这类文件
 - 支持跳过已经小于目标大小的普通图片
 - 支持运行日志写入 `log.txt`
 - 支持全部成功后删除源文件，并在删除前弹窗确认
@@ -78,7 +77,6 @@ assets/icon.rc
 
 - 图片：`png`、`jpg`、`jpeg`、`webp`、`bmp`、`tiff`、`tif`、`gif`、`ico`、`ppm`、`pgm`、`pbm`
 - PDF：`pdf`
-- Word：`docx`，仅提取文档包内的原始内嵌图片，不渲染 Word 页面
 
 输出：
 
@@ -143,7 +141,6 @@ src/
     types.rs           # ExtractedImage / ImageLabel / InputKind
     image.rs           # 普通图片读取
     pdf.rs             # PDF 页面提取入口
-    word.rs            # DOCX 内嵌图片提取
   output/
     mod.rs             # 输出模块入口
     naming.rs          # 输出路径命名规则
@@ -176,7 +173,6 @@ collect_files
   -> input::extract_images
       -> image::extract 普通图片
       -> pdf::extract PDF 每页
-      -> word::extract DOCX 内嵌图片
   -> output::path_for
   -> Compressor::compress_to_size
   -> 写入输出文件
@@ -211,15 +207,14 @@ src/pdf/mupdf.rs
 
 如果未来要替换为 `pdfium-render`，优先新增一个 renderer 实现，而不是直接改 pipeline。
 
-## DOCX 说明
+## Word 文档说明
 
-DOCX 是 zip 包。当前实现只读取：
+当前版本不处理 Word 文档。
 
-```text
-word/media/*
-```
+如果以后要支持 Word 文档，有两种不同方向：
 
-这适合“提取 Word 文档里的原始图片”。它不会把 Word 页面排版渲染成图片，也不会按正文出现顺序解析关系文件。若后续需要严格按文档顺序输出，需要继续解析 `document.xml` 和 `.rels`。
+- 提取 DOCX 内嵌图片：读取 `word/media/*`，不需要 LibreOffice，但不是按页渲染。
+- Word 按页渲染：通常需要 LibreOffice 或 Microsoft Word 这类排版引擎先转 PDF，再复用现有 PDF 渲染流程。
 
 ## 安全行为
 
@@ -233,7 +228,7 @@ word/media/*
 
 - PDF 渲染比例当前固定为 `2.0`
 - GUI 日志框保留最近 12 行，不是完整滚动日志视图
-- DOCX 只提取内嵌图片，不渲染页面
+- 当前版本不处理 Word 文档；如需按页渲染，需另接 LibreOffice / Word 转 PDF 流程
 - 运行日志使用 UTC 时间
 - 当前 `patch/mupdf` 是本地依赖补丁，发布/升级依赖时需要特别注意
 

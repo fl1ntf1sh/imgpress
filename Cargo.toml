@@ -13,23 +13,22 @@ name = "imgpress"
 path = "src/main.rs"
 
 [dependencies]
-clap = { version = "4.5", features = ["derive"] }
+clap = { version = "4.6.4", features = ["derive"] }
 rfd = "0.17.2"
 open = "5.4.0"
 
-image = { version = "0.25", default-features = false, features = ["jpeg", "png", "ico"] }
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "ico"] }
 webp = "0.3"
 mupdf = { version = "0.8", default-features = false, features = ["img", "base14-fonts"] }
-zip = { version = "2", default-features = false, features = ["deflate"] }
 
 rayon = "1.10"
 
-thiserror = "2.0.18"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+thiserror = "2.0.19"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
 directories = "6.0.0"
 log = "0.4"
-env_logger = "0.11"
+env_logger = "0.11.11"
 slint = "1.17.1"
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
