@@ -14,6 +14,9 @@ pub enum Error {
     #[error("pdf error: {0}")]
     Pdf(String),
 
+    #[error("office error: {0}")]
+    Office(String),
+
     #[error("cancelled by user")]
     Cancelled,
 

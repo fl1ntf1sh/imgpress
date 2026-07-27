@@ -136,6 +136,7 @@ fn processing_error_message(error: crate::Error) -> String {
         crate::Error::Image(msg)
         | crate::Error::Encode(msg)
         | crate::Error::Pdf(msg)
+        | crate::Error::Office(msg)
         | crate::Error::Other(msg) => msg,
         crate::Error::Io(e) => e.to_string(),
         crate::Error::Cancelled => "已取消".into(),

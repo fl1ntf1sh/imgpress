@@ -1,6 +1,6 @@
 # imgpress
 
-imgpress 是一个桌面批量压缩工具，支持普通图片和扫描件 PDF。默认启动 Slint GUI，也提供 CLI 模式。
+imgpress 是一个桌面批量压缩工具，支持普通图片、扫描件 PDF 和现代 Office 文档。默认启动 Slint GUI，也提供 CLI 模式。
 
 ## 功能
 
@@ -9,6 +9,7 @@ imgpress 是一个桌面批量压缩工具，支持普通图片和扫描件 PDF�
 - 支持递归扫描输入目录
 - 默认直接输出到输出根目录
 - 支持 PDF 按页渲染后压缩，输出为 `文件夹名_文件名_pdf_page1.jpg` 这类文件
+- 支持 DOCX / XLSX / PPTX 转为 PDF 后按页复用 PDF 压缩流程
 - 支持跳过已经小于目标大小的普通图片
 - 默认写入运行日志 `log.txt`
 - 支持全部成功后按姓名整理输出根目录文件
@@ -77,6 +78,7 @@ assets/icon.rc
 
 - 图片：`png`、`jpg`、`jpeg`、`webp`、`bmp`、`tiff`、`tif`、`gif`、`ico`、`ppm`、`pgm`、`pbm`
 - PDF：`pdf`
+- Office：`docx`、`xlsx`、`pptx`
 
 输出：
 
@@ -156,6 +158,7 @@ src/
     types.rs           # ExtractedImage / ImageLabel / InputKind
     image.rs           # 普通图片读取
     pdf.rs             # PDF 页面提取入口
+    office.rs          # Office 转 PDF 后复用 PDF 页面提取
   output/
     mod.rs             # 输出模块入口
     naming.rs          # 输出路径命名规则
@@ -189,6 +192,7 @@ collect_files
   -> input::extract_images
       -> image::extract 普通图片
       -> pdf::extract PDF 每页
+      -> office::extract Office 转 PDF 后按页提取
   -> output::path_for
   -> Compressor::compress_to_size
   -> 写入输出文件
@@ -224,14 +228,11 @@ src/pdf/mupdf.rs
 
 如果未来要替换为 `pdfium-render`，优先新增一个 renderer 实现，而不是直接改 pipeline。
 
-## Word 文档说明
+## Office 文档说明
 
-当前版本不处理 Word 文档。
+DOCX、XLSX、PPTX 通过 `office2pdf` 转换为 PDF 字节，再交给现有 MuPDF 页面渲染流程处理。
 
-如果以后要支持 Word 文档，有两种不同方向：
-
-- 提取 DOCX 内嵌图片：读取 `word/media/*`，不需要 LibreOffice，但不是按页渲染。
-- Word 按页渲染：通常需要 LibreOffice 或 Microsoft Word 这类排版引擎先转 PDF，再复用现有 PDF 渲染流程。
+`office2pdf` 目前不支持旧版二进制格式 `.doc`、`.xls`、`.ppt`。
 
 ## 安全行为
 
@@ -245,7 +246,7 @@ src/pdf/mupdf.rs
 
 - PDF 渲染比例当前固定为 `2.0`
 - GUI 日志框保留最近 12 行，不是完整滚动日志视图
-- 当前版本不处理 Word 文档；如需按页渲染，需另接 LibreOffice / Word 转 PDF 流程
+- Office 支持范围仅为 DOCX / XLSX / PPTX，不包含旧版 DOC / XLS / PPT
 - 运行日志使用 UTC 时间
 - 当前 `patch/mupdf` 是本地依赖补丁，发布/升级依赖时需要特别注意
 

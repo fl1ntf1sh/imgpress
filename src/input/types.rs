@@ -10,6 +10,7 @@ pub struct ExtractedImage {
 pub enum InputKind {
     Image,
     Pdf,
+    Office,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

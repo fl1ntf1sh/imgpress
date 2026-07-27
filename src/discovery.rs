@@ -26,6 +26,7 @@ struct CollectContext<'a> {
 
 const SUPPORTED_EXTS: &[&str] = &[
     "png", "jpg", "jpeg", "webp", "bmp", "tiff", "tif", "gif", "ico", "ppm", "pgm", "pbm", "pdf",
+    "docx", "xlsx", "pptx",
 ];
 
 pub fn is_supported(path: &Path) -> bool {
@@ -249,6 +250,20 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&input);
         let _ = std::fs::remove_dir_all(&output);
+    }
+
+    #[test]
+    fn office_files_are_supported() {
+        for path in ["report.docx", "book.XLSX", "slides.Pptx"] {
+            assert!(is_supported(Path::new(path)), "{path} should be supported");
+        }
+
+        for path in ["legacy.doc", "legacy.xls", "legacy.ppt"] {
+            assert!(
+                !is_supported(Path::new(path)),
+                "{path} should not be supported"
+            );
+        }
     }
 
     #[test]
