@@ -20,7 +20,8 @@ fn page_output_path(task: &FileTask, index: usize, opts: &CompressOptions) -> Pa
         .input
         .extension()
         .and_then(|s| s.to_str())
-        .unwrap_or("pdf");
+        .unwrap_or("pdf")
+        .to_ascii_lowercase();
     let ext = crate::discovery::output_extension(opts.format);
     let parent = task.output.parent().unwrap_or(&task.output);
     let target_name = format!("{}_{}_page{}.{}", output_stem, source_ext, index, ext);
@@ -47,7 +48,7 @@ mod tests {
     #[test]
     fn page_uses_output_stem_source_format_and_page_index() {
         let task = FileTask {
-            input: PathBuf::from("input/张三/report.pdf"),
+            input: PathBuf::from("input/张三/report.PDF"),
             output: PathBuf::from("output/张三_report.jpg"),
         };
         let opts = CompressOptions::default();

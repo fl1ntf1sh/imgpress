@@ -14,7 +14,7 @@ struct Accumulator {
     bytes_in: std::sync::atomic::AtomicU64,
     bytes_out: std::sync::atomic::AtomicU64,
     failed: Mutex<Vec<(PathBuf, String)>>,
-    run_log: Mutex<Vec<String>>,
+    run_log: Mutex<Vec<(usize, String)>>,
 }
 
 pub fn compress_directory(
@@ -26,8 +26,10 @@ pub fn compress_directory(
     use crate::compressor::Compressor;
 
     std::fs::create_dir_all(output)?;
-    let tasks = collect_files(input, output, opts.recursive, opts.format)?;
+    let collection = collect_files(input, output, opts.recursive, opts.format)?;
+    let tasks = collection.tasks;
     let total = tasks.len();
+    let scan_failed_len = collection.scan_failed.len();
     progress.on_start(total);
 
     for task in &tasks {
@@ -41,18 +43,36 @@ pub fn compress_directory(
         Format::WebP => Box::new(crate::codec::webp::WebPCodec::new()),
     });
 
+    let mut initial_log = vec![(
+        0,
+        format!(
+            "开始扫描，发现 {} 个文件，{} 个目录扫描失败",
+            total, scan_failed_len
+        ),
+    )];
+    initial_log.extend(
+        collection
+            .scan_failed
+            .iter()
+            .enumerate()
+            .map(|(index, (path, msg))| {
+                (index + 1, format!("扫描失败: {} - {}", path.display(), msg))
+            }),
+    );
+
     let acc = Accumulator {
         success: std::sync::atomic::AtomicUsize::new(0),
         bytes_in: std::sync::atomic::AtomicU64::new(0),
         bytes_out: std::sync::atomic::AtomicU64::new(0),
         failed: Mutex::new(Vec::new()),
-        run_log: Mutex::new(vec![format!("开始扫描，发现 {} 个文件", total)]),
+        run_log: Mutex::new(initial_log),
     };
 
-    tasks.par_iter().for_each(|task| {
+    tasks.par_iter().enumerate().for_each(|(index, task)| {
         if progress.is_cancelled() {
             return;
         }
+        let log_index = scan_failed_len + index + 1;
         progress.on_file_start(&task.input);
 
         let outcome = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -78,10 +98,9 @@ pub fn compress_directory(
                     .map(|(path, size)| format!("{} ({} bytes)", path.display(), size))
                     .collect::<Vec<_>>()
                     .join(", ");
-                acc.run_log.lock().unwrap().push(format!(
-                    "完成: {} -> {}",
-                    task.input.display(),
-                    outputs
+                acc.run_log.lock().unwrap().push((
+                    log_index,
+                    format!("完成: {} -> {}", task.input.display(), outputs),
                 ));
                 progress.on_file_done(&task.input, true, None);
             }
@@ -94,10 +113,9 @@ pub fn compress_directory(
                     .lock()
                     .unwrap()
                     .push((task.input.clone(), msg.clone()));
-                acc.run_log.lock().unwrap().push(format!(
-                    "失败: {} - {}",
-                    task.input.display(),
-                    msg
+                acc.run_log.lock().unwrap().push((
+                    log_index,
+                    format!("失败: {} - {}", task.input.display(), msg),
                 ));
                 progress.on_file_done(&task.input, false, Some(&msg));
             }
@@ -105,21 +123,30 @@ pub fn compress_directory(
                 acc.run_log
                     .lock()
                     .unwrap()
-                    .push(format!("取消: {}", task.input.display()));
+                    .push((log_index, format!("取消: {}", task.input.display())));
                 progress.on_file_done(&task.input, false, Some("已取消"));
             }
         }
     });
 
+    let mut failed = collection.scan_failed;
+    failed.extend(acc.failed.into_inner().unwrap());
+    let mut run_log = acc.run_log.into_inner().unwrap();
+    run_log.sort_by_key(|(index, _)| *index);
+    let run_log = run_log
+        .into_iter()
+        .map(|(_, line)| line)
+        .collect::<Vec<_>>();
+
     let mut final_report = CompressReport {
         total,
         success: acc.success.load(std::sync::atomic::Ordering::Relaxed),
-        failed: acc.failed.into_inner().unwrap(),
+        failed,
         bytes_in: acc.bytes_in.load(std::sync::atomic::Ordering::Relaxed),
         bytes_out: acc.bytes_out.load(std::sync::atomic::Ordering::Relaxed),
         source_action: SourceAction::NotRequested,
         organize_action: OrganizeAction::NotRequested,
-        run_log: acc.run_log.into_inner().unwrap(),
+        run_log,
     };
 
     update_source_action(input, output, opts, progress, total, &mut final_report);
@@ -214,5 +241,43 @@ fn update_source_action(
                 };
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_path(name: &str) -> PathBuf {
+        let unique = format!(
+            "imgpress_{}_{}",
+            name,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        std::env::temp_dir().join(unique)
+    }
+
+    #[test]
+    fn compress_directory_reports_scan_failures() {
+        let input = temp_path("missing_scan_input");
+        let output = temp_path("missing_scan_output");
+        let opts = CompressOptions {
+            input: input.clone(),
+            output: output.clone(),
+            ..CompressOptions::default()
+        };
+
+        let report =
+            compress_directory(&input, &output, &opts, &crate::progress::CliProgress).unwrap();
+
+        assert_eq!(report.total, 0);
+        assert_eq!(report.success, 0);
+        assert_eq!(report.failed.len(), 1);
+        assert!(report.run_log.iter().any(|line| line.contains("扫描失败")));
+
+        let _ = std::fs::remove_dir_all(&output);
     }
 }

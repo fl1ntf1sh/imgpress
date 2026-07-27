@@ -9,12 +9,19 @@ pub struct FileTask {
     pub output: PathBuf,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct FileCollection {
+    pub tasks: Vec<FileTask>,
+    pub scan_failed: Vec<(PathBuf, String)>,
+}
+
 struct CollectContext<'a> {
     input_root: &'a Path,
     output_root: &'a Path,
     recursive: bool,
     format: Format,
     reserved_outputs: HashSet<PathBuf>,
+    scan_failed: Vec<(PathBuf, String)>,
 }
 
 const SUPPORTED_EXTS: &[&str] = &[
@@ -32,7 +39,7 @@ pub fn collect_files(
     output: &Path,
     recursive: bool,
     format: Format,
-) -> Result<Vec<FileTask>> {
+) -> Result<FileCollection> {
     let mut tasks = Vec::new();
     let mut ctx = CollectContext {
         input_root: input,
@@ -40,6 +47,7 @@ pub fn collect_files(
         recursive,
         format,
         reserved_outputs: HashSet::new(),
+        scan_failed: Vec::new(),
     };
     if input.is_file() {
         if is_supported(input) {
@@ -49,10 +57,16 @@ pub fn collect_files(
                 output: out,
             });
         }
-        return Ok(tasks);
+        return Ok(FileCollection {
+            tasks,
+            scan_failed: ctx.scan_failed,
+        });
     }
     walk(input, &mut tasks, &mut ctx)?;
-    Ok(tasks)
+    Ok(FileCollection {
+        tasks,
+        scan_failed: ctx.scan_failed,
+    })
 }
 
 fn walk(dir: &Path, tasks: &mut Vec<FileTask>, ctx: &mut CollectContext<'_>) -> Result<()> {
@@ -60,10 +74,21 @@ fn walk(dir: &Path, tasks: &mut Vec<FileTask>, ctx: &mut CollectContext<'_>) -> 
         Ok(e) => e,
         Err(e) => {
             log::warn!("read_dir({}) failed: {}", dir.display(), e);
+            ctx.scan_failed
+                .push((dir.to_path_buf(), format!("读取目录失败: {}", e)));
             return Ok(());
         }
     };
-    for entry in entries.flatten() {
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(e) => {
+                log::warn!("read_dir entry({}) failed: {}", dir.display(), e);
+                ctx.scan_failed
+                    .push((dir.to_path_buf(), format!("读取目录项失败: {}", e)));
+                continue;
+            }
+        };
         let path = entry.path();
 
         if path.is_dir() {
@@ -192,7 +217,8 @@ mod tests {
         std::fs::write(input.join("a.png"), []).unwrap();
         std::fs::write(input.join("a.jpg"), []).unwrap();
 
-        let tasks = collect_files(&input, &output, false, Format::Jpeg).unwrap();
+        let collection = collect_files(&input, &output, false, Format::Jpeg).unwrap();
+        let tasks = collection.tasks;
         let mut outputs = tasks
             .iter()
             .map(|task| task.output.clone())
@@ -215,7 +241,8 @@ mod tests {
         std::fs::write(input.join("a.png"), []).unwrap();
         std::fs::write(output.join("a.jpg"), []).unwrap();
 
-        let tasks = collect_files(&input, &output, false, Format::Jpeg).unwrap();
+        let collection = collect_files(&input, &output, false, Format::Jpeg).unwrap();
+        let tasks = collection.tasks;
 
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].output.file_name().unwrap(), "a_1.jpg");
@@ -231,7 +258,8 @@ mod tests {
         std::fs::create_dir_all(input.join("张三")).unwrap();
         std::fs::write(input.join("张三").join("照片.png"), []).unwrap();
 
-        let tasks = collect_files(&input, &output, true, Format::Jpeg).unwrap();
+        let collection = collect_files(&input, &output, true, Format::Jpeg).unwrap();
+        let tasks = collection.tasks;
 
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].output, output.join("张三_照片.jpg"));
@@ -248,12 +276,27 @@ mod tests {
         let input = input_dir.join("张三.png");
         std::fs::write(&input, []).unwrap();
 
-        let tasks = collect_files(&input, &output, true, Format::Jpeg).unwrap();
+        let collection = collect_files(&input, &output, true, Format::Jpeg).unwrap();
+        let tasks = collection.tasks;
 
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].output, output.join("张三.jpg"));
 
         let _ = std::fs::remove_dir_all(&input_dir);
+        let _ = std::fs::remove_dir_all(&output);
+    }
+
+    #[test]
+    fn collect_files_reports_scan_failures() {
+        let input = temp_path("missing_input");
+        let output = temp_path("missing_output");
+
+        let collection = collect_files(&input, &output, true, Format::Jpeg).unwrap();
+
+        assert!(collection.tasks.is_empty());
+        assert_eq!(collection.scan_failed.len(), 1);
+        assert_eq!(collection.scan_failed[0].0, input);
+
         let _ = std::fs::remove_dir_all(&output);
     }
 }
