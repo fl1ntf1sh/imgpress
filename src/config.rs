@@ -44,9 +44,9 @@ pub struct CompressOptions {
     pub max_quality: u8,
     pub scale_step: f32,
     pub max_scales: u32,
-    pub preserve_structure: bool,
     pub skip_if_smaller: bool,
     pub recursive: bool,
+    pub organize_after_success: bool,
     pub delete_source: bool,
 }
 
@@ -61,9 +61,9 @@ impl Default for CompressOptions {
             max_quality: 95,
             scale_step: 0.85,
             max_scales: 8,
-            preserve_structure: true,
             skip_if_smaller: true,
             recursive: true,
+            organize_after_success: false,
             delete_source: false,
         }
     }

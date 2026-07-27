@@ -43,12 +43,6 @@ pub struct CliArgs {
     pub max_scales: u32,
 
     #[arg(long, default_value_t = true)]
-    pub preserve_structure: bool,
-
-    #[arg(long = "no-preserve-structure")]
-    pub no_preserve_structure: bool,
-
-    #[arg(long, default_value_t = true)]
     pub skip_if_smaller: bool,
 
     #[arg(long = "no-skip-if-smaller")]
@@ -64,7 +58,7 @@ pub struct CliArgs {
     pub yes: bool,
 
     #[arg(long)]
-    pub log_file: bool,
+    pub organize_after_success: bool,
 }
 
 #[cfg(test)]
@@ -72,18 +66,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn cli_defaults_preserve_structure_and_skip_small_files() {
+    fn cli_defaults_skip_small_files() {
         let cli = Cli::parse_from(["imgpress", "cli", "-i", "in", "-o", "out"]);
         let Command::Cli(args) = cli.command.unwrap();
 
-        assert!(args.preserve_structure);
         assert!(args.skip_if_smaller);
-        assert!(!args.no_preserve_structure);
         assert!(!args.no_skip_if_smaller);
     }
 
     #[test]
-    fn cli_can_disable_preserve_structure_and_skip_small_files() {
+    fn cli_can_disable_skip_small_files() {
         let cli = Cli::parse_from([
             "imgpress",
             "cli",
@@ -91,12 +83,10 @@ mod tests {
             "in",
             "-o",
             "out",
-            "--no-preserve-structure",
             "--no-skip-if-smaller",
         ]);
         let Command::Cli(args) = cli.command.unwrap();
 
-        assert!(args.no_preserve_structure);
         assert!(args.no_skip_if_smaller);
     }
 
@@ -109,12 +99,10 @@ mod tests {
             "in",
             "-o",
             "out",
-            "--preserve-structure",
             "--skip-if-smaller",
         ]);
         let Command::Cli(args) = cli.command.unwrap();
 
-        assert!(args.preserve_structure);
         assert!(args.skip_if_smaller);
     }
 }

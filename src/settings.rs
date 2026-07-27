@@ -11,11 +11,11 @@ pub struct AppSettings {
     pub min_quality: u8,
     pub max_quality: u8,
     pub scale_step: f32,
-    pub preserve_structure: bool,
     pub skip_if_smaller: bool,
     pub recursive: bool,
     pub delete_source: bool,
-    pub write_log: bool,
+    #[serde(default)]
+    pub organize_after_success: bool,
     pub max_scales: u32,
 }
 
@@ -29,11 +29,10 @@ impl Default for AppSettings {
             min_quality: 20,
             max_quality: 95,
             scale_step: 0.85,
-            preserve_structure: true,
             skip_if_smaller: true,
             recursive: true,
             delete_source: false,
-            write_log: false,
+            organize_after_success: false,
             max_scales: 8,
         }
     }
@@ -50,9 +49,9 @@ impl From<AppSettings> for CompressOptions {
             max_quality: s.max_quality,
             scale_step: s.scale_step,
             max_scales: s.max_scales,
-            preserve_structure: s.preserve_structure,
             skip_if_smaller: s.skip_if_smaller,
             recursive: s.recursive,
+            organize_after_success: s.organize_after_success,
             delete_source: s.delete_source,
         }
     }

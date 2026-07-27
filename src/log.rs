@@ -1,5 +1,5 @@
 use crate::config::CompressOptions;
-use crate::pipeline::CompressReport;
+use crate::pipeline::{CompressReport, OrganizeAction};
 use crate::source::SourceAction;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -103,9 +103,9 @@ pub fn write_log_file(
     )?;
     writeln!(f, "缩放步长:       {:.0}%", opts.scale_step * 100.0)?;
     writeln!(f, "最大缩放轮数:   {}", opts.max_scales)?;
-    writeln!(f, "保留目录结构:   {}", yes_no(opts.preserve_structure))?;
     writeln!(f, "跳过小文件:     {}", yes_no(opts.skip_if_smaller))?;
     writeln!(f, "递归扫描:       {}", yes_no(opts.recursive))?;
+    writeln!(f, "成功后整理文件: {}", yes_no(opts.organize_after_success))?;
     writeln!(f, "成功后删除源:   {}", yes_no(opts.delete_source))?;
     writeln!(f)?;
     writeln!(f, "[结果]")?;
@@ -139,6 +139,33 @@ pub fn write_log_file(
         SourceAction::Errored { error } => {
             writeln!(f, "状态: 删除失败")?;
             writeln!(f, "错误: {}", error)?;
+        }
+    }
+    writeln!(f)?;
+    writeln!(f, "[输出整理]")?;
+    match &report.organize_action {
+        OrganizeAction::NotRequested => {
+            writeln!(f, "状态: 未请求整理")?;
+        }
+        OrganizeAction::Organized { moved, skipped } => {
+            writeln!(f, "状态: 已整理")?;
+            writeln!(f, "移动文件数: {}", moved)?;
+            writeln!(f, "跳过文件数: {}", skipped)?;
+        }
+        OrganizeAction::Skipped { reason } => {
+            writeln!(f, "状态: 已跳过")?;
+            writeln!(f, "原因: {}", reason)?;
+        }
+        OrganizeAction::Errored { error } => {
+            writeln!(f, "状态: 整理失败")?;
+            writeln!(f, "错误: {}", error)?;
+        }
+    }
+    if !report.run_log.is_empty() {
+        writeln!(f)?;
+        writeln!(f, "[运行日志]")?;
+        for line in &report.run_log {
+            writeln!(f, "{}", line)?;
         }
     }
     if !report.failed.is_empty() {

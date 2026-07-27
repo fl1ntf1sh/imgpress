@@ -11,14 +11,19 @@ pub fn path_for(task: &FileTask, label: &ImageLabel, opts: &CompressOptions) -> 
 }
 
 fn page_output_path(task: &FileTask, index: usize, opts: &CompressOptions) -> PathBuf {
-    let stem = task
-        .input
+    let output_stem = task
+        .output
         .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("pdf");
+    let source_ext = task
+        .input
+        .extension()
         .and_then(|s| s.to_str())
         .unwrap_or("pdf");
     let ext = crate::discovery::output_extension(opts.format);
     let parent = task.output.parent().unwrap_or(&task.output);
-    let target_name = format!("{}_page{}.{}", stem, index, ext);
+    let target_name = format!("{}_{}_page{}.{}", output_stem, source_ext, index, ext);
     crate::discovery::unique_in_dir(parent, &target_name)
 }
 
@@ -40,15 +45,15 @@ mod tests {
     }
 
     #[test]
-    fn page_uses_input_stem_and_page_index() {
+    fn page_uses_output_stem_source_format_and_page_index() {
         let task = FileTask {
-            input: PathBuf::from("input/report.pdf"),
-            output: PathBuf::from("output/report.jpg"),
+            input: PathBuf::from("input/张三/report.pdf"),
+            output: PathBuf::from("output/张三_report.jpg"),
         };
         let opts = CompressOptions::default();
 
         let path = path_for(&task, &ImageLabel::Page { index: 2 }, &opts);
 
-        assert_eq!(path, PathBuf::from("output/report_page2.jpg"));
+        assert_eq!(path, PathBuf::from("output/张三_report_pdf_page2.jpg"));
     }
 }

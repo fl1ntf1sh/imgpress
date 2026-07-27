@@ -150,7 +150,7 @@ pub(super) fn start_compression(app: &MainWindow, runtime: &Runtime, delete_prom
             return;
         }
     };
-    crate::gui::settings_binding::save_settings_from_ui(app, &opts);
+    crate::gui::settings_binding::save_settings_from_ui(&opts);
 
     let cancel = Arc::new(AtomicBool::new(false));
     *runtime.lock().unwrap() = Some(cancel.clone());
@@ -160,7 +160,6 @@ pub(super) fn start_compression(app: &MainWindow, runtime: &Runtime, delete_prom
     app.set_summary("正在启动".into());
 
     let ui = app.as_weak();
-    let write_log = app.get_write_log();
     let delete_prompt = delete_prompt.clone();
     std::thread::spawn(move || {
         let reporter = SlintReporter::new(ui.clone(), cancel, delete_prompt);
@@ -168,16 +167,14 @@ pub(super) fn start_compression(app: &MainWindow, runtime: &Runtime, delete_prom
             crate::pipeline::compress_directory(&opts.input, &opts.output, &opts, &reporter);
         match result {
             Ok(report) => {
-                if write_log {
-                    if let Some(path) = crate::log::log_file_path() {
-                        if let Err(e) = crate::log::write_log_file(&report, &opts, &path) {
-                            update_status(
-                                ui,
-                                format!("写入日志失败: {}", e),
-                                Some("写入日志失败。".into()),
-                                false,
-                            );
-                        }
+                if let Some(path) = crate::log::log_file_path() {
+                    if let Err(e) = crate::log::write_log_file(&report, &opts, &path) {
+                        update_status(
+                            ui,
+                            format!("写入日志失败: {}", e),
+                            Some("写入日志失败。".into()),
+                            false,
+                        );
                     }
                 }
             }

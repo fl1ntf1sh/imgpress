@@ -13,7 +13,6 @@ struct CollectContext<'a> {
     input_root: &'a Path,
     output_root: &'a Path,
     recursive: bool,
-    preserve_structure: bool,
     format: Format,
     reserved_outputs: HashSet<PathBuf>,
 }
@@ -32,7 +31,6 @@ pub fn collect_files(
     input: &Path,
     output: &Path,
     recursive: bool,
-    preserve_structure: bool,
     format: Format,
 ) -> Result<Vec<FileTask>> {
     let mut tasks = Vec::new();
@@ -40,19 +38,12 @@ pub fn collect_files(
         input_root: input,
         output_root: output,
         recursive,
-        preserve_structure,
         format,
         reserved_outputs: HashSet::new(),
     };
     if input.is_file() {
         if is_supported(input) {
-            let out = unique_output(
-                output,
-                input,
-                preserve_structure,
-                format,
-                &mut ctx.reserved_outputs,
-            );
+            let out = unique_output(output, input, format, &mut ctx.reserved_outputs);
             tasks.push(FileTask {
                 input: input.to_path_buf(),
                 output: out,
@@ -87,9 +78,9 @@ fn walk(dir: &Path, tasks: &mut Vec<FileTask>, ctx: &mut CollectContext<'_>) -> 
         }
 
         let rel = path.strip_prefix(ctx.input_root).unwrap_or(&path);
-        let (out_dir, target_name) =
-            build_output_path(rel, ctx.output_root, ctx.preserve_structure, ctx.format);
-        let out_path = unique_in_dir_reserved(&out_dir, &target_name, &mut ctx.reserved_outputs);
+        let target_name = build_output_name(rel, ctx.format);
+        let out_path =
+            unique_in_dir_reserved(ctx.output_root, &target_name, &mut ctx.reserved_outputs);
         tasks.push(FileTask {
             input: path,
             output: out_path,
@@ -98,33 +89,17 @@ fn walk(dir: &Path, tasks: &mut Vec<FileTask>, ctx: &mut CollectContext<'_>) -> 
     Ok(())
 }
 
-fn build_output_path(
-    input: &Path,
-    output_root: &Path,
-    preserve_structure: bool,
-    format: Format,
-) -> (PathBuf, String) {
+fn build_output_name(input: &Path, format: Format) -> String {
     let ext = output_extension(format);
     let stem = input
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("output");
-    if preserve_structure {
-        let parent = input.parent().unwrap_or(Path::new(""));
-        let d = if parent.as_os_str().is_empty() {
-            output_root.to_path_buf()
-        } else {
-            output_root.join(parent)
-        };
-        (d, format!("{}.{}", stem, ext))
+    let prefix = flatten_prefix(input);
+    if prefix.is_empty() {
+        format!("{}.{}", stem, ext)
     } else {
-        let prefix = flatten_prefix(input);
-        let name = if prefix.is_empty() {
-            format!("{}.{}", stem, ext)
-        } else {
-            format!("{}_{}.{}", prefix, stem, ext)
-        };
-        (output_root.to_path_buf(), name)
+        format!("{}_{}.{}", prefix, stem, ext)
     }
 }
 
@@ -185,12 +160,12 @@ fn unique_in_dir_reserved(dir: &Path, name: &str, reserved: &mut HashSet<PathBuf
 fn unique_output(
     output_root: &Path,
     input: &Path,
-    preserve_structure: bool,
     format: Format,
     reserved_outputs: &mut HashSet<PathBuf>,
 ) -> PathBuf {
-    let (out_dir, name) = build_output_path(input, output_root, preserve_structure, format);
-    unique_in_dir_reserved(&out_dir, &name, reserved_outputs)
+    let file_name = input.file_name().map(Path::new).unwrap_or(input);
+    let name = build_output_name(file_name, format);
+    unique_in_dir_reserved(output_root, &name, reserved_outputs)
 }
 
 #[cfg(test)]
@@ -217,7 +192,7 @@ mod tests {
         std::fs::write(input.join("a.png"), []).unwrap();
         std::fs::write(input.join("a.jpg"), []).unwrap();
 
-        let tasks = collect_files(&input, &output, false, true, Format::Jpeg).unwrap();
+        let tasks = collect_files(&input, &output, false, Format::Jpeg).unwrap();
         let mut outputs = tasks
             .iter()
             .map(|task| task.output.clone())
@@ -240,12 +215,45 @@ mod tests {
         std::fs::write(input.join("a.png"), []).unwrap();
         std::fs::write(output.join("a.jpg"), []).unwrap();
 
-        let tasks = collect_files(&input, &output, false, true, Format::Jpeg).unwrap();
+        let tasks = collect_files(&input, &output, false, Format::Jpeg).unwrap();
 
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].output.file_name().unwrap(), "a_1.jpg");
 
         let _ = std::fs::remove_dir_all(&input);
+        let _ = std::fs::remove_dir_all(&output);
+    }
+
+    #[test]
+    fn collect_files_writes_nested_files_to_output_root() {
+        let input = temp_path("flat_output_input");
+        let output = temp_path("flat_output_output");
+        std::fs::create_dir_all(input.join("张三")).unwrap();
+        std::fs::write(input.join("张三").join("照片.png"), []).unwrap();
+
+        let tasks = collect_files(&input, &output, true, Format::Jpeg).unwrap();
+
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].output, output.join("张三_照片.jpg"));
+
+        let _ = std::fs::remove_dir_all(&input);
+        let _ = std::fs::remove_dir_all(&output);
+    }
+
+    #[test]
+    fn collect_files_writes_single_file_to_output_root() {
+        let input_dir = temp_path("single_file_input");
+        let output = temp_path("single_file_output");
+        std::fs::create_dir_all(&input_dir).unwrap();
+        let input = input_dir.join("张三.png");
+        std::fs::write(&input, []).unwrap();
+
+        let tasks = collect_files(&input, &output, true, Format::Jpeg).unwrap();
+
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].output, output.join("张三.jpg"));
+
+        let _ = std::fs::remove_dir_all(&input_dir);
         let _ = std::fs::remove_dir_all(&output);
     }
 }

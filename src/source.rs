@@ -5,8 +5,12 @@ pub enum SourceAction {
     #[default]
     NotRequested,
     Deleted,
-    Skipped { reason: String },
-    Errored { error: String },
+    Skipped {
+        reason: String,
+    },
+    Errored {
+        error: String,
+    },
 }
 
 pub fn delete_source(input: &Path, output: &Path) -> std::io::Result<()> {
@@ -17,13 +21,11 @@ pub fn delete_source(input: &Path, output: &Path) -> std::io::Result<()> {
         return Ok(());
     }
 
-    let skip_path = std::fs::canonicalize(output)
-        .ok()
-        .filter(|out| {
-            std::fs::canonicalize(input)
-                .map(|inp| out.starts_with(&inp))
-                .unwrap_or(false)
-        });
+    let skip_path = std::fs::canonicalize(output).ok().filter(|out| {
+        std::fs::canonicalize(input)
+            .map(|inp| out.starts_with(&inp))
+            .unwrap_or(false)
+    });
 
     for entry in std::fs::read_dir(input)? {
         let entry = entry?;

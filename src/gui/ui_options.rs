@@ -22,9 +22,9 @@ pub(super) fn options_from_ui(app: &MainWindow) -> std::result::Result<CompressO
         max_quality,
         scale_step: scale_step_percent as f32 / 100.0,
         max_scales,
-        preserve_structure: app.get_preserve_structure(),
         skip_if_smaller: app.get_skip_if_smaller(),
         recursive: app.get_recursive(),
+        organize_after_success: app.get_organize_after_success(),
         delete_source: app.get_delete_source(),
     };
     validate_options(&opts)?;

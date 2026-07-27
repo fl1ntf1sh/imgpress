@@ -14,11 +14,10 @@ export component MainWindow inherits Window {
     in-out property <string> max-quality-text: "95";
     in-out property <string> scale-step-percent-text: "85";
     in-out property <string> max-scales-text: "8";
-    in-out property <bool> preserve-structure: true;
     in-out property <bool> skip-if-smaller: true;
     in-out property <bool> recursive: true;
     in-out property <bool> delete-source;
-    in-out property <bool> write-log;
+    in-out property <bool> organize-after-success;
     in-out property <bool> running;
     in-out property <float> progress;
     in-out property <string> summary;
@@ -114,17 +113,14 @@ export component MainWindow inherits Window {
                             font-weight: 700;
                         }
 
-                        CheckBox { text: "保留目录结构"; checked <=> root.preserve-structure; }
-                        Text { text: "按源目录层级生成输出文件夹"; color: #94a3b8; font-size: 11px; }
-
                         CheckBox { text: "跳过小文件"; checked <=> root.skip-if-smaller; }
                         Text { text: "已小于目标大小的普通图片直接复制"; color: #94a3b8; font-size: 11px; }
 
                         CheckBox { text: "递归扫描子目录"; checked <=> root.recursive; }
                         Text { text: "包含所有子文件夹中的支持格式"; color: #94a3b8; font-size: 11px; }
 
-                        CheckBox { text: "写入运行日志"; checked <=> root.write-log; }
-                        Text { text: "保存处理摘要和失败文件列表"; color: #94a3b8; font-size: 11px; }
+                        CheckBox { text: "成功后整理文件"; checked <=> root.organize-after-success; }
+                        Text { text: "处理成功后按姓名归类输出根目录中的文件"; color: #94a3b8; font-size: 11px; }
 
                         CheckBox { text: "全部成功后删除源文件"; checked <=> root.delete-source; }
                         Text { text: "危险操作：失败或取消时不会删除"; color: #b45309; font-size: 11px; }
@@ -261,6 +257,13 @@ export component MainWindow inherits Window {
                             }
                         }
 
+                        Text {
+                            text: "处理日志";
+                            color: #64748b;
+                            font-size: 11px;
+                            font-weight: 700;
+                        }
+
                         Rectangle {
                             vertical-stretch: 1;
                             background: #f8fafc;
@@ -269,13 +272,6 @@ export component MainWindow inherits Window {
                             VerticalLayout {
                                 padding: 14px;
                                 spacing: 10px;
-
-                                Text {
-                                    text: "处理日志";
-                                    color: #64748b;
-                                    font-size: 11px;
-                                    font-weight: 700;
-                                }
 
                                 Text {
                                     text: root.run-log == "" ? "等待开始任务。" : root.run-log;

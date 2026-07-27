@@ -24,7 +24,6 @@ fn main() {
 }
 
 fn run_cli(args: imgpress::cli::CliArgs) {
-    let write_log = args.log_file;
     let opts = match build_options(args) {
         Ok(o) => o,
         Err(e) => {
@@ -52,17 +51,15 @@ fn run_cli(args: imgpress::cli::CliArgs) {
     let elapsed = start.elapsed();
     print_report(&report, elapsed);
 
-    if write_log {
-        match imgpress::log::log_file_path() {
-            Some(path) => {
-                if let Err(e) = write_log_file(&report, &opts, &path) {
-                    eprintln!("写入日志失败: {}", e);
-                } else {
-                    eprintln!("日志已写入: {}", path.display());
-                }
+    match imgpress::log::log_file_path() {
+        Some(path) => {
+            if let Err(e) = write_log_file(&report, &opts, &path) {
+                eprintln!("写入日志失败: {}", e);
+            } else {
+                eprintln!("日志已写入: {}", path.display());
             }
-            None => eprintln!("无法解析配置目录路径，跳过日志写入"),
         }
+        None => eprintln!("无法解析配置目录路径，跳过日志写入"),
     }
 }
 
@@ -83,9 +80,9 @@ fn build_options(args: imgpress::cli::CliArgs) -> CliResult<CompressOptions> {
         max_quality: args.max_quality,
         scale_step: args.scale_step,
         max_scales: args.max_scales,
-        preserve_structure: args.preserve_structure && !args.no_preserve_structure,
         skip_if_smaller: args.skip_if_smaller && !args.no_skip_if_smaller,
         recursive: !args.no_recursive,
+        organize_after_success: args.organize_after_success,
         delete_source: args.delete_source,
     };
     validate_options(&opts)?;
